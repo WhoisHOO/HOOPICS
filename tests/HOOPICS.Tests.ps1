@@ -294,6 +294,62 @@ Describe 'Engine install' {
     }
 }
 
+Describe 'Engine runs' {
+    BeforeAll {
+        # A stand-in exe that prints what the real engine prints on stderr; the model name (-n) picks the outcome.
+        $engineDir = Join-Path $TestDrive 'fake-engine'
+        New-Item -ItemType Directory -Path $engineDir | Out-Null
+        Add-Type -OutputType ConsoleApplication -OutputAssembly (Join-Path $engineDir 'realesrgan-ncnn-vulkan.exe') -TypeDefinition @'
+using System;
+using System.IO;
+
+public static class FakeEngine {
+    public static int Main(string[] args) {
+        string output = null, model = null;
+        for (int i = 0; i + 1 < args.Length; i++) {
+            if (args[i] == "-o") output = args[i + 1];
+            if (args[i] == "-n") model = args[i + 1];
+        }
+        Console.Error.WriteLine("[0 Fake GPU]  queueC=2[8]  queueG=0[16]  queueT=1[2]");
+        Console.Error.WriteLine("50.00%");
+        if (model == "gpu-error") Console.Error.WriteLine("vkQueueSubmit failed -4");
+        if (model == "no-output") { Console.Error.WriteLine("decode image pass0.png failed"); return 0; }
+        Console.Error.WriteLine("100.00%");
+        File.WriteAllBytes(output, new byte[] { 0 });
+        return 0;
+    }
+}
+'@
+        $env:HOOPICS_ENGINE_DIR = $engineDir
+    }
+
+    AfterAll {
+        Remove-Item Env:\HOOPICS_ENGINE_DIR -ErrorAction SilentlyContinue
+    }
+
+    It 'follows the progress of a clean run' {
+        $state = @{ Percent = 0; CancelRequested = $false; Process = $null }
+        $out = Join-Path $TestDrive 'clean.png'
+        InModuleScope HOOPICS.Core -Parameters @{ Out = $out; State = $state } {
+            Invoke-Engine -InputFile 'pass0.png' -OutputFile $Out -Model 'ok' -State $State
+        }
+        Test-Path -LiteralPath $out | Should -BeTrue
+        $state.Percent | Should -Be 100
+    }
+
+    It 'fails when the GPU reports an error, although the engine exits 0 and writes an image' {
+        $out = Join-Path $TestDrive 'gpu.png'
+        { InModuleScope HOOPICS.Core -Parameters @{ Out = $out } { Invoke-Engine -InputFile 'pass0.png' -OutputFile $Out -Model 'gpu-error' } } |
+            Should -Throw 'HOOPICS:Gpu:vkQueueSubmit failed -4'
+    }
+
+    It 'fails when the engine writes no image' {
+        $out = Join-Path $TestDrive 'none.png'
+        { InModuleScope HOOPICS.Core -Parameters @{ Out = $out } { Invoke-Engine -InputFile 'pass0.png' -OutputFile $Out -Model 'no-output' } } |
+            Should -Throw 'HOOPICS:Engine:*decode image pass0.png failed*'
+    }
+}
+
 Describe 'Screens' -Skip:(-not $env:HOOPICS_DESKTOP_TESTS) {
     It 'reports every connected screen in real pixels' {
         $monitors = @(Get-HoopicsMonitor)

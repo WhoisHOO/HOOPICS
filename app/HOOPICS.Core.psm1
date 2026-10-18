@@ -283,6 +283,10 @@ function Invoke-Engine {
         if ($State) { $State.Process = $null }
     }
     if ($State -and $State.CancelRequested) { throw (New-HoopicsError 'Canceled') }
+    # After a GPU error (e.g. "vkQueueSubmit failed -4" when the driver resets the GPU) the engine still
+    # exits 0 and writes an image that is partly or wholly black, so any such line fails the pass.
+    $gpuError = $log | Where-Object { $_ -match '\bvk\w+ failed' } | Select-Object -First 1
+    if ($gpuError) { throw (New-HoopicsError 'Gpu' $gpuError) }
     # The engine exits 0 even when it cannot decode its input, so the output file is the real check.
     if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $OutputFile)) {
         $detail = ($log | Where-Object { $_ -notmatch '^\[\d+ ' } | Select-Object -Last 3) -join ' / '

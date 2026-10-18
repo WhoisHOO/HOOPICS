@@ -55,7 +55,8 @@ SHA-256 before using it. After that HOOPICS works offline.
 
 - Windows 10 or 11, 64-bit. PowerShell 5.1 and WPF, which HOOPICS is built on, ship with Windows.
 - A graphics card with Vulkan support: practically any NVIDIA, AMD or Intel GPU with a current
-  driver. If the AI step fails, update the graphics driver first.
+  driver. If the AI step fails, close other programs that use the GPU heavily (games, AI tools) and
+  update the graphics driver.
 
 ---
 
