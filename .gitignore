@@ -1,0 +1,9 @@
+# AI engine, downloaded on first run
+/engine/
+
+# Interrupted saves
+*.part
+
+# Editors
+.vscode/
+.idea/
