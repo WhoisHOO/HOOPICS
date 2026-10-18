@@ -129,8 +129,10 @@ download from github.com.
 
 ## License
 
-HOOPICS is released under the [MIT License](./LICENSE). The AI engine and models it downloads are
-third-party open source: Real-ESRGAN (BSD 3-Clause), Real-ESRGAN-ncnn-vulkan (MIT), ncnn
-(BSD 3-Clause) and libwebp (BSD 3-Clause). Their notices are in
+HOOPICS is released under the [MIT License](./LICENSE). The AI engine it downloads is third-party
+open source: Real-ESRGAN-ncnn-vulkan (MIT), built with ncnn (BSD 3-Clause), glslang (BSD/MIT/Apache
+2.0), libwebp (BSD 3-Clause) and dirent (MIT). The models come from the Real-ESRGAN repository
+(BSD 3-Clause), but upstream states no license for the trained weights, and the photo model was
+trained on data licensed for research only. Details and license texts are in
 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md). HOOPICS is not affiliated with or endorsed by
 their authors.

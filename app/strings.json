@@ -60,7 +60,7 @@
     "Err_Canceled": "취소했습니다.",
     "OpenDialogTitle": "이미지 고르기",
     "OpenDialogFilter": "이미지|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif;*.tif;*.tiff",
-    "Footer": "HOOPICS {0} · AI 엔진 Real-ESRGAN (BSD-3-Clause) · 모든 처리는 이 PC 안에서만 이루어집니다",
+    "Footer": "HOOPICS {0} · AI 엔진 Real-ESRGAN · 모든 처리는 이 PC 안에서만 이루어집니다",
     "Fatal": "HOOPICS에서 오류가 났습니다.\n\n{0}"
   },
   "en": {
@@ -124,7 +124,7 @@
     "Err_Canceled": "Canceled.",
     "OpenDialogTitle": "Choose images",
     "OpenDialogFilter": "Images|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif;*.tif;*.tiff",
-    "Footer": "HOOPICS {0} · AI engine Real-ESRGAN (BSD-3-Clause) · everything stays on this PC",
+    "Footer": "HOOPICS {0} · AI engine Real-ESRGAN · everything stays on this PC",
     "Fatal": "HOOPICS ran into an error.\n\n{0}"
   }
 }

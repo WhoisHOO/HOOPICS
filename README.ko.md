@@ -76,7 +76,8 @@ Windows 10/11 · 설치할 것 없음 · 모든 처리는 내 PC 안에서 · [M
 HOOPICS는 [MIT 라이선스](./LICENSE)로 공개되어, 누구나 자유롭게 쓰고 고치고 나눌 수 있습니다.
 
 화면, 해상도 프리셋, 화면 감지, 맞춤·자르기, 바탕화면 설정, 엔진 자동 설치 같은 HOOPICS 자체 기능은 이 저장소에서 새로 만든 코드입니다.
-실제로 그림을 키우는 AI는 오픈소스인 Real-ESRGAN(BSD 3-Clause)과 그 실행 엔진(MIT), ncnn(BSD 3-Clause), libwebp(BSD 3-Clause)를 씁니다.
-이 라이선스들의 원문은 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)에 있습니다. HOOPICS는 이들 저작자와 관계가 없으며, 그들의 보증을 받은 프로그램도 아닙니다.
+실제로 그림을 키우는 AI 엔진은 외부 오픈소스입니다. 실행 엔진 Real-ESRGAN-ncnn-vulkan(MIT)과 그 안에 들어 있는 ncnn(BSD 3-Clause), glslang, libwebp(BSD 3-Clause), dirent(MIT)를 씁니다.
+AI 모델은 Real-ESRGAN 저장소(BSD 3-Clause)에서 받지만, 원저자가 모델 파일 자체의 라이선스는 밝히지 않았고, 사진 모델은 연구용으로만 허락된 데이터로 학습되었습니다.
+자세한 내용과 라이선스 원문은 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)에 있습니다. HOOPICS는 이들 저작자와 관계가 없으며, 그들의 보증을 받은 프로그램도 아닙니다.
 
 명령줄 사용법과 개발 방법은 [영어 README](./README.md#command-line)에 있습니다.
