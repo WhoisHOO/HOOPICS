@@ -257,11 +257,11 @@ Describe 'Image pipeline' {
 }
 
 Describe 'Engine install' {
-    It 'unpacks only the engine, its DLLs and the models' {
+    It 'unpacks only the engine, its runtime DLL and the models' {
         Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
         $zip = Join-Path $TestDrive 'engine.zip'
         $archive = [System.IO.Compression.ZipFile]::Open($zip, 'Create')
-        foreach ($name in 'realesrgan-ncnn-vulkan.exe', 'vcomp140.dll', 'models/realesrgan-x4plus.param',
+        foreach ($name in 'realesrgan-ncnn-vulkan.exe', 'vcomp140.dll', 'vcomp140d.dll', 'models/realesrgan-x4plus.param',
             'input.jpg', 'onepiece_demo.mp4', '../escape.dll', 'nested/tool.exe') {
             $writer = New-Object System.IO.StreamWriter ($archive.CreateEntry($name).Open())
             $writer.Write('x')

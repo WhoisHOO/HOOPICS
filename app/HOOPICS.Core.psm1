@@ -213,9 +213,10 @@ function Expand-EngineArchive([string]$Path, [string]$Destination) {
     $archive = [IO.Compression.ZipFile]::OpenRead($Path)
     try {
         foreach ($entry in $archive.Entries) {
-            # Only the engine, its runtime DLLs and the models; the pattern cannot climb out of $Destination.
+            # Only the engine, its runtime DLL and the models; the pattern cannot climb out of $Destination.
+            # vcomp140d.dll is Microsoft's debug OpenMP runtime: the exe never loads it and it may not be redistributed.
             $name = $entry.FullName.Replace('\', '/')
-            if ($name -notmatch '^(?:models/)?[A-Za-z0-9._-]+\.(?:exe|dll|param|bin)$') { continue }
+            if ($name -notmatch '^(?:models/)?[A-Za-z0-9._-]+\.(?:exe|dll|param|bin)$' -or $name -eq 'vcomp140d.dll') { continue }
             $target = Join-Path $Destination $name.Replace('/', '\')
             $parent = Split-Path -Parent $target
             if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
