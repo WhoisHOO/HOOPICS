@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # start.bat runs Windows PowerShell 5.1, so CI does too.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Pester 5
+        shell: powershell
+        run: Install-Module Pester -RequiredVersion 5.7.1 -Force -SkipPublisherCheck -Scope CurrentUser
+
+      - name: Run tests
+        shell: powershell
+        run: |
+          Import-Module Pester -RequiredVersion 5.7.1
+          $config = New-PesterConfiguration
+          $config.Run.Path = 'tests'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $config
+
+      - name: Render the window
+        shell: powershell
+        env:
+          HOOPICS_LANG: en
+          HOOPICS_SCREENSHOT: ${{ runner.temp }}\window.png
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -STA -File app\HOOPICS.ps1 HOO_Logo.jpg
+          if ($LASTEXITCODE -or -not (Test-Path $env:HOOPICS_SCREENSHOT)) { throw 'The window did not render.' }
