@@ -13,14 +13,29 @@ function Test-AsciiPath([string]$Path) {
     $Path -match '^[\x20-\x7E]+$' -and $Path -notmatch '[?*]'
 }
 
-# Add-Type compiles with csc.exe, which cannot write into a temp folder whose name has letters outside the ANSI code
-# page, such as a Hangul user name on an English Windows. Then use that folder's 8.3 short name, or another folder.
-# The engine, a child process, inherits the setting.
+function New-PrivateDirectory([string]$Path) {
+    # Only this user, SYSTEM and Administrators may open it: it holds the pictures being worked on.
+    $security = New-Object Security.AccessControl.DirectorySecurity
+    $security.SetAccessRuleProtection($true, $false)
+    foreach ($sid in [Security.Principal.WindowsIdentity]::GetCurrent().User.Value, 'S-1-5-18', 'S-1-5-32-544') {
+        $security.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule (
+                    (New-Object Security.Principal.SecurityIdentifier $sid), 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')))
+    }
+    # The folders above it keep their usual permissions, so other users can add their own.
+    [void][IO.Directory]::CreateDirectory((Split-Path -Parent $Path))
+    [void][IO.Directory]::CreateDirectory($Path, $security)
+}
+
+# Add-Type compiles with csc.exe, which cannot use a temp folder whose name has letters outside the ANSI code page,
+# such as a Hangul user name on an English Windows: CodeDom creates its folders there with ANSI calls, on some PCs
+# (seen elevated, on a build server) even from the long form of an 8.3 short name. Then use a private folder in
+# ProgramData, or the short name as a last resort. The engine, a child process, inherits the setting.
 if (-not (Test-AsciiPath ([IO.Path]::GetTempPath()))) {
-    foreach ($dir in (Get-ShortPath ([IO.Path]::GetTempPath())), (Join-Path $env:ProgramData 'HOOPICS\temp'), (Join-Path $env:PUBLIC 'HOOPICS\temp')) {
+    $user = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    foreach ($dir in (Join-Path $env:ProgramData "HOOPICS\temp\$user"), (Get-ShortPath ([IO.Path]::GetTempPath()))) {
         if (-not $dir -or -not (Test-AsciiPath $dir)) { continue }
         try {
-            [void][IO.Directory]::CreateDirectory($dir)
+            if (-not [IO.Directory]::Exists($dir)) { New-PrivateDirectory $dir }
             $probe = Join-Path $dir ('.hoopics-' + [guid]::NewGuid().ToString('N'))
             [IO.File]::WriteAllText($probe, '')
             [IO.File]::Delete($probe)
