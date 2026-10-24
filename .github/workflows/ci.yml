@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, hoo-engine]
   pull_request:
 
 jobs:
@@ -15,6 +15,14 @@ jobs:
       - name: Install Pester 5
         shell: powershell
         run: Install-Module Pester -RequiredVersion 5.7.1 -Force -SkipPublisherCheck -Scope CurrentUser
+
+      # The same download and checks as a user's first run; the engine tests then run on the CPU.
+      - name: Install the engine runtime
+        shell: powershell
+        run: |
+          Import-Module .\app\HOOPICS.Core.psm1
+          [void](Install-HoopicsEngine)
+          if (-not (Test-HoopicsEngine)) { throw 'The engine runtime did not install.' }
 
       - name: Run tests
         shell: powershell

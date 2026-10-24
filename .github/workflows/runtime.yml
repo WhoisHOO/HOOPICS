@@ -1,0 +1,55 @@
+name: Engine runtime
+
+# Builds the engine runtime ZIP (dev/runtime/Build-Runtime.ps1) and publishes it as a release asset for the pushed
+# tag, e.g. runtime-ort1.24.4-dml1.15.4-r1. HOOPICS pins the ZIP's SHA-256, so a published asset is never replaced:
+# a new build gets a new tag.
+on:
+  push:
+    tags: ['runtime-*']
+
+permissions:
+  contents: write
+
+jobs:
+  runtime:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build
+        id: build
+        shell: powershell
+        run: .\dev\runtime\Build-Runtime.ps1 -OutDir "$env:RUNNER_TEMP\runtime"
+
+      - name: Publish
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          ZIP: ${{ steps.build.outputs.zip }}
+          SHA256: ${{ steps.build.outputs.sha256 }}
+          MANIFEST: ${{ steps.build.outputs.manifest }}
+        run: |
+          # HOOPICS pins this ZIP's SHA-256; a build that differs must not be published under it.
+          $pin = [regex]::Match((Get-Content -Raw app\HOOPICS.Core.psm1), "Sha256 = '([0-9A-F]{64})'").Groups[1].Value
+          if ($pin -ne $env:SHA256.ToUpperInvariant()) { throw "This build's SHA-256 is $env:SHA256, but HOOPICS pins $pin." }
+          $notes = @(
+            'Engine runtime for HOOPICS: ONNX Runtime 1.24.4 with DirectML 1.15.4, its .NET API and the Visual C++ runtime 14.44, for 64-bit Windows.'
+            'Every file is Microsoft-signed and unmodified; dev/runtime/Build-Runtime.ps1 lists the sources and their pinned hashes.'
+            'This is not a HOOPICS release. HOOPICS downloads it by itself.'
+            ''
+            "ZIP SHA-256: $env:SHA256"
+          ) -join "`n"
+          # Draft first, so the release never shows without its files; never the "latest" release.
+          gh release create $env:TAG --draft --prerelease --latest=false --title "Engine runtime ($env:TAG)" --notes $notes
+          if ($LASTEXITCODE) { throw 'gh release create failed' }
+          gh release upload $env:TAG $env:ZIP $env:MANIFEST
+          if ($LASTEXITCODE) { throw 'gh release upload failed' }
+          # GitHub's own record of what it stored must match what was built, before anyone can download it.
+          $name = Split-Path -Leaf $env:ZIP
+          $assets = gh release view $env:TAG --json assets --jq '.assets[] | [.name, .digest] | @tsv'
+          $digest = $assets | Where-Object { $_.Split("`t")[0] -eq $name } | ForEach-Object { $_.Split("`t")[1] }
+          if ($digest -ne "sha256:$env:SHA256") { throw "GitHub reports $digest for $name, not sha256:$env:SHA256" }
+          gh release edit $env:TAG --draft=false
+          if ($LASTEXITCODE) { throw 'gh release edit failed' }
+          "$name SHA-256 $env:SHA256" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
