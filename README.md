@@ -68,8 +68,8 @@ SHA-256 of the download and of every file in it. After that it works offline.
 
 ## How it works
 
-1. The picture is read, turned upright, and saved as a PNG in a temporary folder, so the engine only
-   ever reads files that HOOPICS wrote itself.
+1. The picture is read, turned upright, and saved as a PNG in a private temporary folder, so the
+   engine only ever reads files that HOOPICS wrote itself.
 2. The AI model runs at its native 4× on the GPU through Microsoft's
    [ONNX Runtime](https://onnxruntime.ai) with DirectML, twice in a row when more than 4× is needed (up
    to 16×). It works in tiles of 256 px, each with a margin of the picture around it so the seams do
