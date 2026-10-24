@@ -9,6 +9,19 @@
 param([Parameter(ValueFromRemainingArguments = $true)] [string[]] $Path)
 
 $ErrorActionPreference = 'Stop'
+
+# An App Control or AppLocker policy, as on many work PCs, runs unsigned scripts in ConstrainedLanguage mode, where not
+# even the window can be built. Smart App Control's policy leaves scripts alone. Explain it in Notepad, which still
+# opens in that mode, instead of failing without a word.
+if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') {
+    $notice = Join-Path $PSScriptRoot 'restricted.txt'
+    if ($env:HOOPICS_SCREENSHOT -or $env:HOOPICS_AUTORUN) {
+        throw "PowerShell runs in $($ExecutionContext.SessionState.LanguageMode) mode here; see $notice"
+    }
+    Start-Process notepad.exe -ArgumentList "`"$notice`""
+    exit 1
+}
+
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 
 $CorePath = Join-Path $PSScriptRoot 'HOOPICS.Core.psm1'

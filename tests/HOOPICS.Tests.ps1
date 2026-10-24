@@ -94,6 +94,22 @@ Describe 'Window layout' {
         $used = [regex]::Matches($script, '\$ui\.(\w+)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
         foreach ($name in $used) { $window.FindName($name) | Should -Not -BeNullOrEmpty -Because "HOOPICS.ps1 uses `$ui.$name" }
     }
+
+    It 'explains itself when PowerShell runs in a restricted mode' {
+        # An App Control or AppLocker policy puts unsigned scripts in ConstrainedLanguage mode; here it is set by hand.
+        Test-Path -LiteralPath (Join-Path $AppDir 'restricted.txt') | Should -BeTrue
+        $command = "`$ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'; & '$(Join-Path $AppDir 'HOOPICS.ps1')'"
+        $saved = $env:HOOPICS_SCREENSHOT
+        $env:HOOPICS_SCREENSHOT = Join-Path $TestDrive 'restricted.png'
+        try {
+            $ErrorActionPreference = 'Continue'
+            $log = & powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -Command $command 2>&1 | ForEach-Object { "$_" }
+        } finally {
+            $env:HOOPICS_SCREENSHOT = $saved
+        }
+        $LASTEXITCODE | Should -Not -Be 0
+        ($log -join "`n") | Should -Match 'ConstrainedLanguage mode here; see .*restricted\.txt'
+    }
 }
 
 Describe 'Planning' {

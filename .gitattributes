@@ -6,6 +6,8 @@
 *.psm1 text eol=crlf
 *.xaml text eol=crlf
 *.cs   text eol=crlf
+# Opened in Notepad.
+app/restricted.txt text eol=crlf
 
 *.jpg binary
 *.png binary
