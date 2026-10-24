@@ -8,20 +8,24 @@ function Get-ShortPath([string]$Path) {
     try { (New-Object -ComObject Scripting.FileSystemObject).GetFolder($Path).ShortPath } catch { $null }
 }
 
-function Test-AnsiPath([string]$Path) {
-    $ansi = [Text.Encoding]::Default
-    $ansi.GetString($ansi.GetBytes($Path)) -eq $Path
+function Test-AsciiPath([string]$Path) {
+    # Without '?': a short-path lookup that finds no 8.3 name can hand back the name with '?' for each letter.
+    $Path -match '^[\x20-\x7E]+$' -and $Path -notmatch '[?*]'
 }
 
-# Add-Type compiles with csc.exe, which cannot write into a temp folder whose name is outside the ANSI code page,
-# such as a Hangul user name on an English Windows. Then use that folder's 8.3 short name, or another folder. The
-# engine, a child process, inherits the setting.
-if (-not (Test-AnsiPath ([IO.Path]::GetTempPath()))) {
+# Add-Type compiles with csc.exe, which cannot write into a temp folder whose name has letters outside the ANSI code
+# page, such as a Hangul user name on an English Windows. Then use that folder's 8.3 short name, or another folder.
+# The engine, a child process, inherits the setting.
+if (-not (Test-AsciiPath ([IO.Path]::GetTempPath()))) {
     foreach ($dir in (Get-ShortPath ([IO.Path]::GetTempPath())), (Join-Path $env:ProgramData 'HOOPICS\temp'), (Join-Path $env:PUBLIC 'HOOPICS\temp')) {
-        if (-not $dir -or -not (Test-AnsiPath $dir)) { continue }
+        if (-not $dir -or -not (Test-AsciiPath $dir)) { continue }
         try {
-            New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop | Out-Null
-            $env:TEMP = $env:TMP = $dir
+            [void][IO.Directory]::CreateDirectory($dir)
+            $probe = Join-Path $dir ('.hoopics-' + [guid]::NewGuid().ToString('N'))
+            [IO.File]::WriteAllText($probe, '')
+            [IO.File]::Delete($probe)
+            $env:TEMP = $dir
+            $env:TMP = $dir
             break
         } catch {
             continue
@@ -695,10 +699,10 @@ function New-WorkDirectory {
     $temp = [IO.Path]::GetTempPath()
     $candidates = @($temp, (Get-ShortPath $temp), (Join-Path $env:ProgramData 'HOOPICS'), (Join-Path $env:PUBLIC 'HOOPICS'))
     foreach ($base in $candidates) {
-        if (-not $base -or $base -notmatch '^[\x20-\x7E]+$') { continue }
+        if (-not $base -or -not (Test-AsciiPath $base)) { continue }
         $dir = Join-Path $base ('hoopics-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
         try {
-            New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop | Out-Null
+            [void][IO.Directory]::CreateDirectory($dir)
             return $dir
         } catch {
             continue
