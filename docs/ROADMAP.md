@@ -72,10 +72,23 @@ HOOPICS는 지금 Real-ESRGAN의 AI 모델과 그 실행 엔진(realesrgan-ncnn-
 - [x] 배포처: 우리 GitHub Release(`runtime-ort1.24.4-dml1.15.4-r1`), 태그를 올리면 CI가 만들어 올림
 - [x] 동등성 테스트: Real-ESRGAN 모델을 ONNX로 바꿔(`dev/parity/ncnn_to_onnx.py`) 두 엔진을 비교. 작은 그림은 기존 엔진과 픽셀까지 같음(개발용, 배포하지 않음)
 - [x] 테스트: 직접 만든 832바이트 테스트 모델로 CI(GPU 없음)에서도 실제 엔진을 CPU로 돌림. 타일 결과 = 통짜 결과, 고장 3종 대체, 한글 경로, 상주 엔진
-- [ ] 깨끗한 Windows 10 22H2 / 11 가상 PC에서 테스트(VC++ 런타임이 없는 상태, Windows 10의 오래된 내장 DirectML)
-- [ ] Smart App Control을 켠 PC에서 테스트(PowerShell이 FullLanguage로 남는지, Add-Type과 DLL 로드가 되는지)
-- [ ] AMD GPU, 오래된 Intel GPU에서 테스트
-- [ ] Arm 기반 Windows(Snapdragon): 지금은 x64 런타임만 있어서 안내 메시지만 띄움. Arm64용 런타임 추가 검토
+테스트는 작성자의 노트북 한 대에서만 합니다(2026-10-24 결정). 여기서 할 수 없는 테스트는 하지 않고, 엔진의 안전장치에 맡깁니다.
+
+- [x] VC++ 런타임이 없는 PC 대신: 엔진이 불러오는 DLL 121개를 모두 확인. 이 노트북의 System32에는 더 새 VC++ 14.50, 내장
+  DirectML 1.15.6, 내장 ONNX Runtime 1.17이 있지만, VC++ 4개와 onnxruntime, DirectML은 모두 우리 폴더의 것(14.44, 1.24.4,
+  1.15.4)을 씀. 나머지는 Windows 기본 구성 요소(d3d12, dxgi, ucrtbase 등)와 Windows 보안(Defender)뿐이라, VC++가 없는 PC에서도
+  같은 파일로 동작함
+- [x] Smart App Control 정책 확인: 이 노트북에 있는 정책 파일을 풀어 봄. SAC 정책(`VerifiedAndReputableDesktop`)에는
+  `Disabled:Script Enforcement`가 있어서, SAC는 PowerShell 스크립트를 제한 모드로 바꾸지 않음(평가 모드 정책은 같은 옵션에 감사
+  모드만 더해져 있어 해석이 맞음을 확인). 엔진이 불러오는 DLL은 모두 마이크로소프트 서명. 남는 문제는 "인터넷에서 받음" 표시가 있는
+  `start.bat`이 막히는 것뿐이고, README의 차단 해제 안내로 피함
+- [x] 제한 모드(ConstrainedLanguage)에서는 창을 만드는 첫 줄부터 막혀 아무것도 뜨지 않음을 확인. 회사·학교 PC의 App Control이나
+  AppLocker 정책이 이렇게 만들 수 있으므로, 이때는 메모장으로 안내함(`app/restricted.txt`)
+- [ ] (선택) SAC를 실제로 켜고 테스트: 이 노트북은 SAC를 다시 켤 수 있는 빌드(26300)지만, 진단 데이터가 "필수"로만 되어 있어
+  "선택적 진단 데이터"를 먼저 켜야 할 수 있음. 작성자가 원할 때만
+- 이 노트북으로는 할 수 없어서 하지 않는 테스트: Windows 10, AMD GPU, 오래된 Intel GPU, Arm 기반 Windows. 대신 엔진은 처음에
+  fp16과 fp32를 재서 고르고, 타일마다 결과를 검사하고, GPU가 실패하면 CPU로 넘어감. Arm 기반 Windows는 지원하지 않고 안내
+  메시지만 띄움
 
 이 노트북에서 잰 값 (1178×661 사진 → 4712×2644, 프로그램 시작 포함, fp16·fp32 측정이 끝난 뒤):
 
@@ -154,6 +167,8 @@ DirectML의 fp16은 이 GPU에서 오히려 느려서 fp32를 씁니다. 우리 
 - [x] **Smart App Control이 켜진 PC에서 `start.bat`이 막힘**: 브라우저로 받은 ZIP을 탐색기로 풀면 모든 파일에
   "인터넷에서 받음" 표시(Mark of the Web)가 붙고, 이 표시가 있는 `.bat`은 더블클릭해도 실행되지 않습니다(허용 버튼도 없음).
   코드 서명으로도 해결되지 않습니다(.bat은 서명할 수 없음). v0.1.2부터 README와 릴리스 안내에 "ZIP을 풀기 전에 속성 → 차단 해제"를 적었습니다.
+- [ ] **v0.1.x 엔진과 Smart App Control**: v0.1.x가 내려받는 `realesrgan-ncnn-vulkan.exe`에는 서명이 없어서, SAC가 켜진 PC에서는
+  마이크로소프트의 평판 정보에 따라 막힐 수 있습니다. 0.2.0의 새 엔진에는 서명 없는 실행 파일이 없습니다.
 - [ ] **제어된 폴더 액세스(랜섬웨어 방지)가 켜진 PC**: PowerShell은 사진·문서 폴더에 쓸 수 없습니다.
   결과를 저장하지 못하면 보호되지 않는 폴더로 저장하고 안내해야 합니다.
 - [x] **영어 Windows에서 사용자 이름이 한글이면 HOOPICS가 시작하지 못함**: 임시 폴더 이름을 ANSI 코드 페이지로 쓸 수 없으면
