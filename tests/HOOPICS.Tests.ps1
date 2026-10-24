@@ -531,9 +531,19 @@ Describe 'Engine runs' -Skip:(-not $RuntimeReady) {
         $out = Join-Path $TestDrive 'ansi-temp'
         New-Item -ItemType Directory -Path $out | Out-Null
         $command = @"
+`$ErrorActionPreference = 'Stop'
 `$env:TEMP = `$env:TMP = '$temp'
-Import-Module '$(Join-Path $AppDir 'HOOPICS.Core.psm1')'
-try { (Invoke-HoopicsImage -Path '$Picture' -Target @(@{ Scale = 2 }) -OutDir '$out').Path } finally { Stop-HoopicsEngine }
+try {
+    Import-Module '$(Join-Path $AppDir 'HOOPICS.Core.psm1')'
+    (Invoke-HoopicsImage -Path '$Picture' -Target @(@{ Scale = 2 }) -OutDir '$out').Path
+} catch {
+    'error: ' + `$_.Exception.Message
+    `$odd = Get-ChildItem Env: | Where-Object { `$_.Value -match '[^\x20-\x7E]' } | ForEach-Object { `$_.Name + '=' + `$_.Value }
+    'current folder: ' + [Environment]::CurrentDirectory + '; TEMP: ' + `$env:TEMP + '; non-ASCII variables: ' + (`$odd -join ', ')
+    exit 1
+} finally {
+    if (Get-Command Stop-HoopicsEngine -ErrorAction SilentlyContinue) { Stop-HoopicsEngine }
+}
 "@
         $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
         $ErrorActionPreference = 'Continue'
