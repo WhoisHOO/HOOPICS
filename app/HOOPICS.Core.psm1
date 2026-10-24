@@ -3,27 +3,70 @@
 # Keep this file ASCII-only: Windows PowerShell 5.1 reads BOM-less scripts in the ANSI code page.
 
 Add-Type -AssemblyName System.Drawing
+
+function Get-ShortPath([string]$Path) {
+    try { (New-Object -ComObject Scripting.FileSystemObject).GetFolder($Path).ShortPath } catch { $null }
+}
+
+function Test-AnsiPath([string]$Path) {
+    $ansi = [Text.Encoding]::Default
+    $ansi.GetString($ansi.GetBytes($Path)) -eq $Path
+}
+
+# Add-Type compiles with csc.exe, which cannot write into a temp folder whose name is outside the ANSI code page,
+# such as a Hangul user name on an English Windows. Then use that folder's 8.3 short name, or another folder. The
+# engine, a child process, inherits the setting.
+if (-not (Test-AnsiPath ([IO.Path]::GetTempPath()))) {
+    foreach ($dir in (Get-ShortPath ([IO.Path]::GetTempPath())), (Join-Path $env:ProgramData 'HOOPICS\temp'), (Join-Path $env:PUBLIC 'HOOPICS\temp')) {
+        if (-not $dir -or -not (Test-AnsiPath $dir)) { continue }
+        try {
+            New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop | Out-Null
+            $env:TEMP = $env:TMP = $dir
+            break
+        } catch {
+            continue
+        }
+    }
+}
+
 if (-not ('Hoopics.Desktop' -as [type])) {
     Add-Type -Path (Join-Path $PSScriptRoot 'Native.cs')
 }
 
-$script:Version = '0.1.1'
+$script:Version = '0.2.0-dev'
 $script:AppRoot = Split-Path -Parent $PSScriptRoot
 
-# Pinned upstream release; the download is rejected unless it matches this SHA-256.
-$script:Engine = [pscustomobject]@{
-    Name   = 'realesrgan-ncnn-vulkan-20220424'
-    Url    = 'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip'
-    Sha256 = 'ABC02804E17982A3BE33675E4D471E91EA374E65B70167ABC09E31ACB412802D'
-    Exe    = 'realesrgan-ncnn-vulkan.exe'
+# The engine runtime: ONNX Runtime with DirectML, its .NET API and the Visual C++ runtime, every file Microsoft-signed
+# and unmodified, packed by dev\runtime\Build-Runtime.ps1. The download is rejected unless the ZIP and each DLL in it
+# match these SHA-256s.
+$script:Runtime = [pscustomobject]@{
+    Name   = 'hoopics-runtime-ort1.24.4-dml1.15.4-win-x64'
+    Url    = 'https://github.com/WhoisHOO/HOOPICS/releases/download/runtime-ort1.24.4-dml1.15.4-r1/hoopics-runtime-ort1.24.4-dml1.15.4-win-x64.zip'
+    Sha256 = '024859A755740A88A73956B96D898238F1B1884E7D65751168064CC5685740CB'
+    Files  = @{
+        'onnxruntime.dll'                            = 'E7EEDEC6A6F26DC39DC948276A75EF6D2BEE3FFF944D874CEED0BBD3B97BFF40'
+        'DirectML.dll'                               = '9C9E6D822561C6C41B90E6994B3E8857CF1D66DBFB1E0C4C799C7C89B4E92DA1'
+        'Microsoft.ML.OnnxRuntime.dll'               = '5C3C531AF36A6CB4BAA01DB20DCF94A0464EC36F8090AA42F35FF565B90A1EA6'
+        'System.Memory.dll'                          = 'BF3FB84664F4097F1A8A9BC71A51DCF8CF1A905D4080A4D290DA1730866E856F'
+        'System.Buffers.dll'                         = 'ACCCCFBE45D9F08FFEED9916E37B33E98C65BE012CFFF6E7FA7B67210CE1FEFB'
+        'System.Numerics.Vectors.dll'                = '1D3EF8698281E7CF7371D1554AFEF5872B39F96C26DA772210A33DA041BA1183'
+        'System.Runtime.CompilerServices.Unsafe.dll' = '66409F670315AFE8610F17A4D3A1EE52D72B6A46C544CEC97544E8385F90AD74'
+        'msvcp140.dll'                               = '0F885B509A685D2BBFA652FED26B5FB31D88FBDAB0A978C641D1C7B8AA460AA9'
+        'msvcp140_1.dll'                             = 'BFAD5AEF4C63A669E3C140655CDFDF395B6C979B400A447BD5DCB65ED8826C3D'
+        'vcruntime140.dll'                           = 'D5E4D9A3E835FA679450145D6A7D94E36573A509317111904D9B3712C30D9066'
+        'vcruntime140_1.dll'                         = '1F2D41C4AA5DB0BC33EBF7B66D72943A817D7CE6CBE880502A9403823633093F'
+    }
 }
 
-# Every model runs at its native 4x and the result is resampled to the exact target size.
-# On anime frames this came out cleaner than the engine's own 2x/3x models (fewer halos).
+# Models are <File>.fp32.onnx and/or <File>.fp16.onnx in engine\models. Every model runs at its native 4x and the
+# result is resampled to the exact target size. Tile is the piece of the picture the GPU takes at once; Pad is the
+# context around each piece that keeps the seams invisible (models that look further need more).
+# For now these are development models: Real-ESRGAN converted with dev\parity\ncnn_to_onnx.py, never shipped
+# (see docs\ROADMAP.md).
 $script:Models = [ordered]@{
-    'anime'       = 'realesr-animevideov3'
-    'anime-sharp' = 'realesrgan-x4plus-anime'
-    'photo'       = 'realesrgan-x4plus'
+    'anime'       = @{ File = 'realesr-animevideov3-x4'; Tile = 256; Pad = 16 }
+    'anime-sharp' = @{ File = 'realesrgan-x4plus-anime'; Tile = 256; Pad = 24 }
+    'photo'       = @{ File = 'realesrgan-x4plus'; Tile = 256; Pad = 24 }
 }
 
 $script:InputExtensions = @('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif', '.tif', '.tiff')
@@ -139,22 +182,26 @@ function Set-HoopicsWallpaper {
 
 function Get-EngineDirectory {
     if ($env:HOOPICS_ENGINE_DIR) { return $env:HOOPICS_ENGINE_DIR }
-    Join-Path (Join-Path $script:AppRoot 'engine') $script:Engine.Name
+    Join-Path $script:AppRoot 'engine'
 }
 
-function Get-EngineModelFiles([string]$Model) {
-    # The engine picks realesr-animevideov3-x4.* itself from "-s 4"; the x4plus models have no suffix.
-    $base = if ($Model -eq 'realesr-animevideov3') { "$Model-x4" } else { $Model }
-    "$base.param", "$base.bin"
+function Get-RuntimeDirectory {
+    if ($env:HOOPICS_RUNTIME_DIR) { return $env:HOOPICS_RUNTIME_DIR }
+    Join-Path (Get-EngineDirectory) $script:Runtime.Name
+}
+
+function Get-ModelPath([string]$Model) {
+    $dir = if ($env:HOOPICS_MODEL_DIR) { $env:HOOPICS_MODEL_DIR } else { Join-Path (Get-EngineDirectory) 'models' }
+    Join-Path $dir $script:Models[$Model].File
 }
 
 function Test-HoopicsEngine {
-    $dir = Get-EngineDirectory
-    if (-not (Test-Path -LiteralPath (Join-Path $dir $script:Engine.Exe))) { return $false }
-    foreach ($model in $script:Models.Values) {
-        foreach ($file in Get-EngineModelFiles $model) {
-            if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $dir 'models') $file))) { return $false }
-        }
+    # Every DLL, by its pinned SHA-256, each time: a damaged or swapped file means installing again.
+    $dir = Get-RuntimeDirectory
+    foreach ($file in $script:Runtime.Files.Keys) {
+        $path = Join-Path $dir $file
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
+        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $script:Runtime.Files[$file]) { return $false }
     }
     $true
 }
@@ -167,11 +214,11 @@ function Set-Progress($State, [string]$Activity, [double]$Percent) {
     }
 }
 
-function Save-EngineArchive([string]$Destination, $State) {
+function Save-EngineArchive([string]$Url, [string]$Destination, $State) {
     # GitHub needs TLS 1.2, which Windows PowerShell 5.1 does not always enable by default.
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
     try {
-        $request = [Net.HttpWebRequest]::Create($script:Engine.Url)
+        $request = [Net.HttpWebRequest]::Create($Url)
         $request.UserAgent = "HOOPICS/$script:Version"
         $response = $request.GetResponse()
     } catch {
@@ -201,10 +248,10 @@ function Save-EngineArchive([string]$Destination, $State) {
     }
 }
 
-function Assert-EngineArchive([string]$Path) {
+function Assert-FileHash([string]$Path, [string]$Sha256) {
     $hash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
-    if ($hash -ne $script:Engine.Sha256) {
-        throw (New-HoopicsError 'Checksum' "expected $($script:Engine.Sha256), got $hash")
+    if ($hash -ne $Sha256) {
+        throw (New-HoopicsError 'Checksum' ('{0}: expected {1}, got {2}' -f (Split-Path -Leaf $Path), $Sha256, $hash))
     }
 }
 
@@ -213,10 +260,9 @@ function Expand-EngineArchive([string]$Path, [string]$Destination) {
     $archive = [IO.Compression.ZipFile]::OpenRead($Path)
     try {
         foreach ($entry in $archive.Entries) {
-            # Only the engine, its runtime DLL and the models; the pattern cannot climb out of $Destination.
-            # vcomp140d.dll is Microsoft's debug OpenMP runtime: the exe never loads it and it may not be redistributed.
+            # Only the pinned DLLs and the license texts; neither pattern can climb out of $Destination.
             $name = $entry.FullName.Replace('\', '/')
-            if ($name -notmatch '^(?:models/)?[A-Za-z0-9._-]+\.(?:exe|dll|param|bin)$' -or $name -eq 'vcomp140d.dll') { continue }
+            if (-not $script:Runtime.Files.ContainsKey($name) -and $name -notmatch '^licenses/[A-Za-z0-9._-]+\.(?:txt|md)$') { continue }
             $target = Join-Path $Destination $name.Replace('/', '\')
             $parent = Split-Path -Parent $target
             if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
@@ -225,28 +271,80 @@ function Expand-EngineArchive([string]$Path, [string]$Destination) {
     } finally {
         $archive.Dispose()
     }
+    foreach ($file in $script:Runtime.Files.Keys) {
+        $path = Join-Path $Destination $file
+        if (-not (Test-Path -LiteralPath $path)) { throw (New-HoopicsError 'Checksum' "$file is missing") }
+        Assert-FileHash $path $script:Runtime.Files[$file]
+    }
 }
 
 function Install-HoopicsEngine {
     param($State)
-    $target = Get-EngineDirectory
+    $target = Get-RuntimeDirectory
     if (Test-HoopicsEngine) { return $target }
     $parent = Split-Path -Parent $target
     New-Item -ItemType Directory -Path $parent -Force | Out-Null
-    $zip = Join-Path $parent "$($script:Engine.Name).zip.part"
-    $staging = "$target.staging"
+    # Names of its own, so that two HOOPICS windows installing at once do not delete each other's files.
+    $id = [guid]::NewGuid().ToString('N').Substring(0, 8)
+    $zip = Join-Path $parent "$($script:Runtime.Name).$id.zip.part"
+    $staging = "$target.$id.staging"
     try {
-        Save-EngineArchive -Destination $zip -State $State
-        Assert-EngineArchive -Path $zip
-        if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
+        Save-EngineArchive -Url $script:Runtime.Url -Destination $zip -State $State
+        Assert-FileHash $zip $script:Runtime.Sha256
         Expand-EngineArchive -Path $zip -Destination $staging
-        if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
-        Rename-Item -LiteralPath $staging -NewName (Split-Path -Leaf $target)
+        try {
+            if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop }
+            Rename-Item -LiteralPath $staging -NewName (Split-Path -Leaf $target) -ErrorAction Stop
+        } catch {
+            # Another HOOPICS may have installed it meanwhile, or a running engine holds the old files.
+            if (-not (Test-HoopicsEngine)) { throw (New-HoopicsError 'Runtime' $_.Exception.Message) }
+        }
     } finally {
         Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
     }
     $target
+}
+
+function Get-PowerShellPath {
+    # The runtime is 64-bit; from a 32-bit PowerShell on 64-bit Windows, System32 would lead back to the 32-bit one.
+    $folder = if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) { 'Sysnative' } else { 'System32' }
+    Join-Path $env:SystemRoot "$folder\WindowsPowerShell\v1.0\powershell.exe"
+}
+
+# The engine is a child powershell.exe running app\engine\hoopics-engine.ps1. It stays up for a whole batch, so the
+# model is loaded once, and takes one job per stdin line: arguments separated by tabs, in UTF-8 so any path works.
+function Start-Engine {
+    # The runtime is for x64; Windows on Arm runs PowerShell as Arm64, which cannot load it.
+    if (@($env:PROCESSOR_ARCHITECTURE, $env:PROCESSOR_ARCHITEW6432) -contains 'ARM64') {
+        throw (New-HoopicsError 'Runtime' 'Windows on Arm is not supported yet')
+    }
+    $start = New-Object Diagnostics.ProcessStartInfo
+    $start.FileName = Get-PowerShellPath
+    $start.Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}"' -f (Join-Path $PSScriptRoot 'engine\hoopics-engine.ps1')
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardInput = $true
+    $start.RedirectStandardError = $true
+    $start.StandardErrorEncoding = New-Object Text.UTF8Encoding $false
+    $start.EnvironmentVariables['HOOPICS_RUNTIME'] = Get-RuntimeDirectory
+    $script:EngineProcess = [Diagnostics.Process]::Start($start)
+    $script:EngineProcess
+}
+
+function Stop-HoopicsEngine {
+    $process = $script:EngineProcess
+    $script:EngineProcess = $null
+    if (-not $process) { return }
+    try {
+        # The end of its input makes the engine exit by itself.
+        if (-not $process.HasExited) { $process.StandardInput.Close() }
+        if (-not $process.WaitForExit(5000)) { $process.Kill() }
+    } catch {
+        # Already gone.
+    } finally {
+        $process.Dispose()
+    }
 }
 
 function Invoke-Engine {
@@ -258,41 +356,60 @@ function Invoke-Engine {
         [double] $ProgressBase = 0,
         [double] $ProgressSpan = 100
     )
-    $dir = Get-EngineDirectory
-    $start = New-Object Diagnostics.ProcessStartInfo
-    $start.FileName = Join-Path $dir $script:Engine.Exe
-    $start.Arguments = '-i "{0}" -o "{1}" -n {2} -s 4 -m "{3}"' -f $InputFile, $OutputFile, $Model, (Join-Path $dir 'models')
-    $start.UseShellExecute = $false
-    $start.CreateNoWindow = $true
-    $start.RedirectStandardError = $true
-    $start.RedirectStandardOutput = $true
-    $process = [Diagnostics.Process]::Start($start)
+    $spec = $script:Models[$Model]
+    $job = @('-i', $InputFile, '-o', $OutputFile, '-m', (Get-ModelPath $Model), '-s', '4', '-t', $spec.Tile, '-x', $spec.Pad,
+        '-c', (Join-Path (Get-EngineDirectory) 'choices.txt'))
+    if ($env:HOOPICS_ENGINE_DEVICE) { $job += '-g', $env:HOOPICS_ENGINE_DEVICE }
+    $bytes = [Text.Encoding]::UTF8.GetBytes(($job -join "`t") + "`n")
+
+    if ($State -and $State.CancelRequested) { throw (New-HoopicsError 'Canceled') }
+    $process = $script:EngineProcess
+    if (-not $process -or $process.HasExited) { $process = Start-Engine }
     if ($State) { $State.Process = $process }
     $log = New-Object Collections.Generic.List[string]
+    $code = $null
     try {
-        # stderr carries "12.50%" progress lines; stdout stays empty.
+        $process.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
+        $process.StandardInput.BaseStream.Flush()
+        # stderr: "12.50%" progress, "[tag] text" status, and "[done <exit code>]" when the job is over.
         while ($null -ne ($line = $process.StandardError.ReadLine())) {
             if ($line -match '^(\d+(?:\.\d+)?)%$') {
                 Set-Progress $State 'Upscaling' ($ProgressBase + $ProgressSpan * [double]$Matches[1] / 100)
-            } elseif ($line.Trim()) {
-                $log.Add($line)
+                continue
             }
+            if ($line -match '^\[done (\d+)\]$') { $code = [int]$Matches[1]; break }
+            if ($State) {
+                if ($line -match '^\[calibrate\] measuring') { $State.Note = 'calibrate' }
+                elseif ($line -match '^\[gpu\]') { $State.Note = $null }
+                elseif ($line -match '^\[(cpu|fallback)\]') { $State.Note = 'cpu' }
+            }
+            $log.Add($line)
         }
-        [void]$process.StandardOutput.ReadToEnd()
-        $process.WaitForExit()
+    } catch [IO.IOException] {
+        # The engine was gone before it could take the job: canceled, or it crashed.
     } finally {
         if ($State) { $State.Process = $null }
     }
-    if ($State -and $State.CancelRequested) { throw (New-HoopicsError 'Canceled') }
-    # After a GPU error (e.g. "vkQueueSubmit failed -4" when the driver resets the GPU) the engine still
-    # exits 0 and writes an image that is partly or wholly black, so any such line fails the pass.
-    $gpuError = $log | Where-Object { $_ -match '\bvk\w+ failed' } | Select-Object -First 1
-    if ($gpuError) { throw (New-HoopicsError 'Gpu' $gpuError) }
-    # The engine exits 0 even when it cannot decode its input, so the output file is the real check.
-    if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $OutputFile)) {
-        $detail = ($log | Where-Object { $_ -notmatch '^\[\d+ ' } | Select-Object -Last 3) -join ' / '
-        throw (New-HoopicsError 'Engine' ("exit code {0}. {1}" -f $process.ExitCode, $detail))
+    if ($State -and $State.CancelRequested) {
+        Stop-HoopicsEngine
+        throw (New-HoopicsError 'Canceled')
     }
+    $detail = ($log | Where-Object { $_ -match '^\[error ' } | Select-Object -Last 1) -replace '^\[error \d+\] ', ''
+    if ($null -eq $code) {
+        # The engine ended without finishing the job; it exits with 3 when the runtime cannot load.
+        if ($process.WaitForExit(5000)) { $code = $process.ExitCode }
+        Stop-HoopicsEngine
+        if ($code -eq 3) { throw (New-HoopicsError 'Runtime' $detail) }
+        if (-not $detail) { $detail = ($log | Select-Object -Last 2) -join ' / ' }
+        throw (New-HoopicsError 'Engine' ("the engine stopped (exit code {0}). {1}" -f $code, $detail))
+    }
+    switch ($code) {
+        0 { }
+        3 { Stop-HoopicsEngine; throw (New-HoopicsError 'Runtime' $detail) }
+        4 { throw (New-HoopicsError 'Model' $detail) }
+        default { throw (New-HoopicsError 'Engine' ("exit code {0}. {1}" -f $code, $detail)) }
+    }
+    if (-not (Test-Path -LiteralPath $OutputFile)) { throw (New-HoopicsError 'Engine' 'no output file') }
 }
 
 #endregion
@@ -572,13 +689,9 @@ function Resolve-OutputDirectory([string]$Requested, [string]$InputPath) {
     $fallback
 }
 
-function Get-ShortPath([string]$Path) {
-    try { (New-Object -ComObject Scripting.FileSystemObject).GetFolder($Path).ShortPath } catch { $null }
-}
-
 function New-WorkDirectory {
-    # The engine crashes when its output path has non-ASCII characters (e.g. a Korean user name
-    # inside %TEMP%), so the work folder must be ASCII-only.
+    # An ASCII-only path. The Real-ESRGAN engine of HOOPICS 0.1.1 crashed on others (e.g. a Korean user
+    # name inside %TEMP%); ours does not, so this can go with the rest of Real-ESRGAN in 0.2.0.
     $temp = [IO.Path]::GetTempPath()
     $candidates = @($temp, (Get-ShortPath $temp), (Join-Path $env:ProgramData 'HOOPICS'), (Join-Path $env:PUBLIC 'HOOPICS'))
     foreach ($base in $candidates) {
@@ -627,7 +740,7 @@ function Invoke-HoopicsImage {
             for ($pass = 1; $pass -le $plan.Passes; $pass++) {
                 $next = Join-Path $work "pass$pass.png"
                 $span = 80 / $plan.Passes
-                Invoke-Engine -InputFile $current -OutputFile $next -Model $script:Models[$Model] -State $State `
+                Invoke-Engine -InputFile $current -OutputFile $next -Model $Model -State $State `
                     -ProgressBase (10 + $span * ($pass - 1)) -ProgressSpan $span
                 $current = $next
             }
@@ -677,5 +790,5 @@ function Invoke-HoopicsImage {
 #endregion
 
 Export-ModuleMember -Function Get-HoopicsVersion, Get-HoopicsModel, Get-HoopicsInputExtension, Get-HoopicsPreset,
-    Get-HoopicsMonitor, Set-HoopicsWallpaper, Test-HoopicsEngine, Install-HoopicsEngine, Get-HoopicsPlan,
+    Get-HoopicsMonitor, Set-HoopicsWallpaper, Test-HoopicsEngine, Install-HoopicsEngine, Stop-HoopicsEngine, Get-HoopicsPlan,
     Get-HoopicsImageInfo, Invoke-HoopicsImage

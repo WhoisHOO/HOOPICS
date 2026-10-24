@@ -64,7 +64,7 @@ try {
     }
 
     if (-not (Test-HoopicsEngine)) {
-        Write-Host 'Downloading the AI engine (first run only, about 43 MB)...'
+        Write-Host 'Downloading the AI engine (first run only, about 16 MB)...'
         [void](Install-HoopicsEngine)
     }
 
@@ -81,4 +81,6 @@ try {
 } catch {
     Write-Host "hoopics: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
+} finally {
+    Stop-HoopicsEngine
 }

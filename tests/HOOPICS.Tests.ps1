@@ -1,5 +1,6 @@
 # Pester 5 tests. Run from the repo root:  Invoke-Pester -Path tests
-# The AI engine is replaced by a nearest-neighbour 4x stand-in, so no GPU or download is needed.
+# The image pipeline runs with a nearest-neighbour 4x stand-in for the AI engine. 'Engine runs' uses the real engine
+# on the CPU with a tiny test model, and is skipped until the engine runtime is installed; no GPU is needed.
 
 BeforeAll {
     $AppDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'app'
@@ -76,8 +77,8 @@ Describe 'Translations' {
     }
 
     It 'keeps the scripts ASCII so Windows PowerShell 5.1 reads them in any code page' {
-        $scripts = Get-ChildItem -LiteralPath $AppDir -File | Where-Object { @('.ps1', '.psm1', '.cs', '.xaml') -contains $_.Extension }
-        @($scripts).Count | Should -Be 5
+        $scripts = Get-ChildItem -LiteralPath $AppDir -File -Recurse | Where-Object { @('.ps1', '.psm1', '.cs', '.xaml') -contains $_.Extension }
+        @($scripts).Count | Should -Be 7
         foreach ($file in $scripts) {
             [IO.File]::ReadAllBytes($file.FullName) | Where-Object { $_ -gt 127 } | Should -BeNullOrEmpty -Because $file.Name
         }
@@ -257,96 +258,288 @@ Describe 'Image pipeline' {
 }
 
 Describe 'Engine install' {
-    It 'unpacks only the engine, its runtime DLL and the models' {
+    BeforeAll {
         Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
-        $zip = Join-Path $TestDrive 'engine.zip'
-        $archive = [System.IO.Compression.ZipFile]::Open($zip, 'Create')
-        foreach ($name in 'realesrgan-ncnn-vulkan.exe', 'vcomp140.dll', 'vcomp140d.dll', 'models/realesrgan-x4plus.param',
-            'input.jpg', 'onepiece_demo.mp4', '../escape.dll', 'nested/tool.exe') {
-            $writer = New-Object System.IO.StreamWriter ($archive.CreateEntry($name).Open())
-            $writer.Write('x')
-            $writer.Dispose()
+        # Stands in for the runtime ZIP: pinned names with test contents, whose hashes stand in for the real pins.
+        function New-TestArchive([string]$Path, [hashtable]$Entries) {
+            $archive = [System.IO.Compression.ZipFile]::Open($Path, 'Create')
+            foreach ($name in $Entries.Keys) {
+                $writer = New-Object System.IO.StreamWriter ($archive.CreateEntry($name).Open())
+                $writer.Write($Entries[$name])
+                $writer.Dispose()
+            }
+            $archive.Dispose()
         }
-        $archive.Dispose()
-        $out = Join-Path $TestDrive 'engine'
+        function Get-TextHash([string]$Text) {
+            $sha = [System.Security.Cryptography.SHA256]::Create()
+            try { -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Text)) | ForEach-Object { $_.ToString('X2') }) } finally { $sha.Dispose() }
+        }
+        function Expand-WithPins([string]$Zip, [string]$Out, [hashtable]$Pins) {
+            InModuleScope HOOPICS.Core -Parameters @{ Zip = $Zip; Out = $Out; Pins = $Pins } {
+                $saved = $script:Runtime
+                $script:Runtime = [pscustomobject]@{ Files = $Pins }
+                try { Expand-EngineArchive -Path $Zip -Destination $Out } finally { $script:Runtime = $saved }
+            }
+        }
+        $Pins = @{ 'onnxruntime.dll' = (Get-TextHash 'ort'); 'DirectML.dll' = (Get-TextHash 'dml') }
+    }
 
-        InModuleScope HOOPICS.Core -Parameters @{ Zip = $zip; Out = $out } { Expand-EngineArchive -Path $Zip -Destination $Out }
-
+    It 'unpacks only the pinned DLLs and the license texts' {
+        $zip = Join-Path $TestDrive 'runtime.zip'
+        New-TestArchive $zip @{ 'onnxruntime.dll' = 'ort'; 'DirectML.dll' = 'dml'; 'licenses/DirectML-LICENSE.txt' = 'terms'
+            'tool.exe' = 'x'; 'extra.dll' = 'x'; '../escape.dll' = 'x'; 'licenses/../../escape.txt' = 'x'; 'nested/onnxruntime.dll' = 'x' }
+        $out = Join-Path $TestDrive 'runtime'
+        Expand-WithPins $zip $out $Pins
         $files = Get-ChildItem -LiteralPath $out -Recurse -File | ForEach-Object { $_.FullName.Substring($out.Length + 1) }
-        $files | Sort-Object | Should -Be @('models\realesrgan-x4plus.param', 'realesrgan-ncnn-vulkan.exe', 'vcomp140.dll')
+        $files | Sort-Object | Should -Be @('DirectML.dll', 'licenses\DirectML-LICENSE.txt', 'onnxruntime.dll')
         Test-Path -LiteralPath (Join-Path $TestDrive 'escape.dll') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $TestDrive 'escape.txt') | Should -BeFalse
+    }
+
+    It 'rejects a DLL that does not match its pinned hash' {
+        $zip = Join-Path $TestDrive 'swapped.zip'
+        New-TestArchive $zip @{ 'onnxruntime.dll' = 'ort'; 'DirectML.dll' = 'not the real one' }
+        { Expand-WithPins $zip (Join-Path $TestDrive 'swapped') $Pins } | Should -Throw 'HOOPICS:Checksum:DirectML.dll*'
+    }
+
+    It 'rejects a runtime with a DLL missing' {
+        $zip = Join-Path $TestDrive 'short.zip'
+        New-TestArchive $zip @{ 'onnxruntime.dll' = 'ort' }
+        { Expand-WithPins $zip (Join-Path $TestDrive 'short') $Pins } | Should -Throw 'HOOPICS:Checksum:DirectML.dll is missing*'
     }
 
     It 'rejects a download whose checksum does not match' {
         $file = Join-Path $TestDrive 'tampered.zip'
         Set-Content -LiteralPath $file -Value 'tampered'
-        { InModuleScope HOOPICS.Core -Parameters @{ File = $file } { Assert-EngineArchive -Path $File } } | Should -Throw 'HOOPICS:Checksum*'
+        { InModuleScope HOOPICS.Core -Parameters @{ File = $file } { Assert-FileHash $File $script:Runtime.Sha256 } } | Should -Throw 'HOOPICS:Checksum*'
+    }
+
+    It 'pins every DLL that the engine loads' {
+        $pinned = InModuleScope HOOPICS.Core { @($script:Runtime.Files.Keys) }
+        foreach ($name in 'onnxruntime.dll', 'DirectML.dll', 'Microsoft.ML.OnnxRuntime.dll', 'System.Memory.dll', 'System.Buffers.dll',
+            'System.Numerics.Vectors.dll', 'System.Runtime.CompilerServices.Unsafe.dll', 'msvcp140.dll', 'msvcp140_1.dll',
+            'vcruntime140.dll', 'vcruntime140_1.dll') {
+            $pinned | Should -Contain $name
+        }
     }
 
     It 'treats an empty engine folder as not installed' {
+        $saved = $env:HOOPICS_ENGINE_DIR, $env:HOOPICS_RUNTIME_DIR
         $env:HOOPICS_ENGINE_DIR = Join-Path $TestDrive 'nothing-here'
-        try { Test-HoopicsEngine | Should -BeFalse } finally { Remove-Item Env:\HOOPICS_ENGINE_DIR }
+        $env:HOOPICS_RUNTIME_DIR = $null
+        try { Test-HoopicsEngine | Should -BeFalse } finally { $env:HOOPICS_ENGINE_DIR, $env:HOOPICS_RUNTIME_DIR = $saved }
     }
 
-    It 'works in an ASCII-only folder, which the engine needs' {
+    It 'treats a runtime with a changed DLL as not installed' {
+        $dir = Join-Path $TestDrive 'changed-runtime'
+        New-Item -ItemType Directory -Path $dir | Out-Null
+        foreach ($name in (InModuleScope HOOPICS.Core { @($script:Runtime.Files.Keys) })) { Set-Content -LiteralPath (Join-Path $dir $name) -Value 'x' }
+        $saved = $env:HOOPICS_RUNTIME_DIR
+        $env:HOOPICS_RUNTIME_DIR = $dir
+        try { Test-HoopicsEngine | Should -BeFalse } finally { $env:HOOPICS_RUNTIME_DIR = $saved }
+    }
+
+    It 'works in an ASCII-only folder' {
         $dir = InModuleScope HOOPICS.Core { New-WorkDirectory }
         try { $dir | Should -Match '^[\x20-\x7E]+$' } finally { Remove-Item -LiteralPath $dir -Recurse -Force }
     }
 }
 
-Describe 'Engine runs' {
-    BeforeAll {
-        # A stand-in exe that prints what the real engine prints on stderr; the model name (-n) picks the outcome.
-        $engineDir = Join-Path $TestDrive 'fake-engine'
-        New-Item -ItemType Directory -Path $engineDir | Out-Null
-        Add-Type -OutputType ConsoleApplication -OutputAssembly (Join-Path $engineDir 'realesrgan-ncnn-vulkan.exe') -TypeDefinition @'
-using System;
-using System.IO;
-
-public static class FakeEngine {
-    public static int Main(string[] args) {
-        string output = null, model = null;
-        for (int i = 0; i + 1 < args.Length; i++) {
-            if (args[i] == "-o") output = args[i + 1];
-            if (args[i] == "-n") model = args[i + 1];
-        }
-        Console.Error.WriteLine("[0 Fake GPU]  queueC=2[8]  queueG=0[16]  queueT=1[2]");
-        Console.Error.WriteLine("50.00%");
-        if (model == "gpu-error") Console.Error.WriteLine("vkQueueSubmit failed -4");
-        if (model == "no-output") { Console.Error.WriteLine("decode image pass0.png failed"); return 0; }
-        Console.Error.WriteLine("100.00%");
-        File.WriteAllBytes(output, new byte[] { 0 });
-        return 0;
-    }
+# The real engine on the CPU, with a tiny hand-made model (tests\fixtures\blur-x4: a 3x3 blur, then 4x nearest
+# neighbour). It needs the engine runtime: install it with Install-HoopicsEngine, or point HOOPICS_RUNTIME_DIR at it.
+BeforeDiscovery {
+    Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'app\HOOPICS.Core.psm1') -Force
+    $RuntimeReady = Test-HoopicsEngine
 }
-'@
-        $env:HOOPICS_ENGINE_DIR = $engineDir
+
+Describe 'Engine runs' -Skip:(-not $RuntimeReady) {
+    BeforeAll {
+        $Fixtures = Join-Path $PSScriptRoot 'fixtures'
+        $EngineScript = Join-Path $AppDir 'engine\hoopics-engine.ps1'
+        $Runtime = InModuleScope HOOPICS.Core { Get-RuntimeDirectory }
+        # The core's model names, backed by the test model.
+        $ModelDir = Join-Path $TestDrive 'models'
+        New-Item -ItemType Directory -Path $ModelDir | Out-Null
+        foreach ($precision in 'fp32', 'fp16') {
+            Copy-Item (Join-Path $Fixtures "blur-x4.$precision.onnx") (Join-Path $ModelDir "realesr-animevideov3-x4.$precision.onnx")
+        }
+        $SavedEnvironment = @{}
+        foreach ($name in 'HOOPICS_MODEL_DIR', 'HOOPICS_ENGINE_DEVICE', 'HOOPICS_ENGINE_DIR', 'HOOPICS_RUNTIME_DIR') {
+            $SavedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
+        }
+        $env:HOOPICS_MODEL_DIR = $ModelDir
+        $env:HOOPICS_ENGINE_DEVICE = 'cpu'
+        $env:HOOPICS_ENGINE_DIR = Join-Path $TestDrive 'engine'
+        $env:HOOPICS_RUNTIME_DIR = $Runtime
+
+        # Gray, with a red square and a blue bar; small tile settings cut it into many tiles.
+        $Picture = Join-Path $TestDrive 'picture.png'
+        New-TestImage $Picture 90 70 {
+            param($g)
+            $g.Clear([System.Drawing.Color]::Gray)
+            $g.FillRectangle([System.Drawing.Brushes]::Red, 10, 10, 30, 30)
+            $g.FillRectangle([System.Drawing.Brushes]::Blue, 50, 40, 35, 12)
+        }
+
+        # One picture through hoopics-engine.ps1 directly, so a test can pick the tile size or inject a fault.
+        function Invoke-EngineScript([string]$In, [string]$Out, [string[]]$Arguments, [string]$Fault) {
+            $env:HOOPICS_ENGINE_FAULT = $Fault
+            $ErrorActionPreference = 'Continue'
+            try {
+                $log = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $EngineScript -r $Runtime -i $In -o $Out `
+                    -m (Join-Path $Fixtures 'blur-x4') -g cpu @Arguments 2>&1 | ForEach-Object { "$_" }
+                [pscustomobject]@{ ExitCode = $LASTEXITCODE; Log = @($log) }
+            } finally {
+                Remove-Item Env:\HOOPICS_ENGINE_FAULT -ErrorAction SilentlyContinue
+            }
+        }
+
+        function Get-Pixels([string]$Path) {
+            $bitmap = New-Object System.Drawing.Bitmap $Path
+            try {
+                $rect = New-Object System.Drawing.Rectangle 0, 0, $bitmap.Width, $bitmap.Height
+                $data = $bitmap.LockBits($rect, 'ReadOnly', 'Format32bppArgb')
+                $bytes = New-Object byte[] ($data.Stride * $data.Height)
+                [Runtime.InteropServices.Marshal]::Copy($data.Scan0, $bytes, 0, $bytes.Length)
+                $bitmap.UnlockBits($data)
+                , $bytes
+            } finally {
+                $bitmap.Dispose()
+            }
+        }
+
+        function Test-SamePixels([string]$A, [string]$B) {
+            [Linq.Enumerable]::SequenceEqual([byte[]](Get-Pixels $A), [byte[]](Get-Pixels $B))
+        }
+
+        $Whole = Join-Path $TestDrive 'whole.png'
+        $WholeRun = Invoke-EngineScript $Picture $Whole @('-t', '512', '-x', '2')
     }
 
     AfterAll {
-        Remove-Item Env:\HOOPICS_ENGINE_DIR -ErrorAction SilentlyContinue
+        InModuleScope HOOPICS.Core { Stop-HoopicsEngine }
+        foreach ($name in $SavedEnvironment.Keys) { [Environment]::SetEnvironmentVariable($name, $SavedEnvironment[$name]) }
     }
 
-    It 'follows the progress of a clean run' {
-        $state = @{ Percent = 0; CancelRequested = $false; Process = $null }
-        $out = Join-Path $TestDrive 'clean.png'
-        InModuleScope HOOPICS.Core -Parameters @{ Out = $out; State = $state } {
-            Invoke-Engine -InputFile 'pass0.png' -OutputFile $Out -Model 'ok' -State $State
+    It 'enlarges a picture 4x on the CPU' {
+        $WholeRun.ExitCode | Should -Be 0 -Because ($WholeRun.Log -join "`n")
+        Get-Size $Whole | Should -Be '360x280'
+        $WholeRun.Log | Should -Contain '100.00%'
+        # Inside the square the blur changes nothing; each pixel becomes a 4x4 block.
+        $inside = Get-Pixel $Whole 100 100
+        '{0},{1},{2}' -f $inside.R, $inside.G, $inside.B | Should -Be '255,0,0'
+        (Get-Pixel $Whole 300 20).R | Should -Be 128
+        # The picture's edge is repeated outward, so the blur keeps the gray corner gray; zeros would darken it.
+        (Get-Pixel $Whole 0 0).R | Should -Be 128
+    }
+
+    It 'gives exactly the same picture in tiles as in one piece' {
+        $tiled = Join-Path $TestDrive 'tiled.png'
+        $run = Invoke-EngineScript $Picture $tiled @('-t', '16', '-x', '2')
+        $run.ExitCode | Should -Be 0 -Because ($run.Log -join "`n")
+        Test-SamePixels $Whole $tiled | Should -BeTrue
+    }
+
+    It 'enlarges transparency too' {
+        $in = Join-Path $TestDrive 'alpha-in.png'
+        New-TestImage $in 40 40 { param($g) $g.Clear([System.Drawing.Color]::Transparent); $g.FillEllipse([System.Drawing.Brushes]::Blue, 10, 10, 20, 20) } -Alpha
+        $out = Join-Path $TestDrive 'alpha-out.png'
+        (Invoke-EngineScript $in $out @()).ExitCode | Should -Be 0
+        Get-Size $out | Should -Be '160x160'
+        (Get-Pixel $out 2 2).A | Should -Be 0
+        (Get-Pixel $out 80 80).A | Should -Be 255
+    }
+
+    It 'still finishes the picture when the device fails (<Fault>)' -ForEach @(
+        @{ Fault = 'lost@3'; Tile = '16'; Says = '[[]fallback[]]*' }
+        @{ Fault = 'garbage@2'; Tile = '16'; Says = '[[]fallback[]]*' }
+        @{ Fault = 'garbage@0'; Tile = '128'; Says = '[[]retry[]]*' }
+        @{ Fault = 'oom@0'; Tile = '128'; Says = '[[]retry[]]*' }
+    ) {
+        $out = Join-Path $TestDrive "fault-$($Fault.Split('@')[0]).png"
+        $run = Invoke-EngineScript $Picture $out @('-t', $Tile, '-x', '2') $Fault
+        $run.ExitCode | Should -Be 0 -Because ($run.Log -join "`n")
+        @($run.Log | Where-Object { $_ -like $Says }).Count | Should -BeGreaterThan 0 -Because ($run.Log -join "`n")
+        Test-SamePixels $Whole $out | Should -BeTrue
+    }
+
+    It 'reports a model that does not exist' {
+        $run = Invoke-EngineScript $Picture (Join-Path $TestDrive 'none.png') @('-m', (Join-Path $TestDrive 'no-such-model'))
+        $run.ExitCode | Should -Be 4
+    }
+
+    It 'keeps one engine for several jobs and survives a failed one' {
+        $state = @{ Percent = 0; CancelRequested = $false; Process = $null; Note = $null }
+        $first = Join-Path $TestDrive 'job1.png'
+        InModuleScope HOOPICS.Core -Parameters @{ In = $Picture; Out = $first; State = $state } {
+            Invoke-Engine -InputFile $In -OutputFile $Out -Model 'anime' -State $State
         }
-        Test-Path -LiteralPath $out | Should -BeTrue
         $state.Percent | Should -Be 100
+        $state.Note | Should -Be 'cpu'
+        $engine = InModuleScope HOOPICS.Core { $script:EngineProcess.Id }
+
+        { InModuleScope HOOPICS.Core -Parameters @{ In = (Join-Path $TestDrive 'missing.png'); Out = (Join-Path $TestDrive 'job2.png') } {
+                Invoke-Engine -InputFile $In -OutputFile $Out -Model 'anime'
+            } } | Should -Throw 'HOOPICS:Engine:exit code 5*'
+
+        $third = Join-Path $TestDrive 'job3.png'
+        InModuleScope HOOPICS.Core -Parameters @{ In = $Picture; Out = $third } { Invoke-Engine -InputFile $In -OutputFile $Out -Model 'anime' }
+        InModuleScope HOOPICS.Core { $script:EngineProcess.Id } | Should -Be $engine
+        Test-SamePixels $Whole $third | Should -BeTrue
     }
 
-    It 'fails when the GPU reports an error, although the engine exits 0 and writes an image' {
-        $out = Join-Path $TestDrive 'gpu.png'
-        { InModuleScope HOOPICS.Core -Parameters @{ Out = $out } { Invoke-Engine -InputFile 'pass0.png' -OutputFile $Out -Model 'gpu-error' } } |
-            Should -Throw 'HOOPICS:Gpu:vkQueueSubmit failed -4'
+    It 'passes folder names in Korean to the engine' {
+        $folder = Join-Path $TestDrive (-join [char[]](0xD55C, 0xAE00))
+        New-Item -ItemType Directory -Path $folder | Out-Null
+        $models = Join-Path $folder 'models'
+        Copy-Item -LiteralPath $ModelDir -Destination $models -Recurse
+        $env:HOOPICS_MODEL_DIR = $models
+        try {
+            $out = Join-Path $TestDrive 'korean.png'
+            InModuleScope HOOPICS.Core -Parameters @{ In = $Picture; Out = $out } { Invoke-Engine -InputFile $In -OutputFile $Out -Model 'anime' }
+            Get-Size $out | Should -Be '360x280'
+        } finally {
+            $env:HOOPICS_MODEL_DIR = $ModelDir
+        }
     }
 
-    It 'fails when the engine writes no image' {
-        $out = Join-Path $TestDrive 'none.png'
-        { InModuleScope HOOPICS.Core -Parameters @{ Out = $out } { Invoke-Engine -InputFile 'pass0.png' -OutputFile $Out -Model 'no-output' } } |
-            Should -Throw 'HOOPICS:Engine:*decode image pass0.png failed*'
+    It 'reports a runtime that cannot load' {
+        InModuleScope HOOPICS.Core { Stop-HoopicsEngine }
+        $env:HOOPICS_RUNTIME_DIR = Join-Path $TestDrive 'no-runtime'
+        try {
+            { InModuleScope HOOPICS.Core -Parameters @{ In = $Picture; Out = (Join-Path $TestDrive 'no-runtime.png') } {
+                    Invoke-Engine -InputFile $In -OutputFile $Out -Model 'anime'
+                } } | Should -Throw 'HOOPICS:Runtime:*'
+        } finally {
+            $env:HOOPICS_RUNTIME_DIR = $Runtime
+        }
+    }
+
+    It 'enlarges a picture end to end with the real engine' {
+        $file = Join-Path $TestDrive 'end-to-end.png'
+        New-TestImage $file 120 80
+        $result = Invoke-HoopicsImage -Path $file -Target @(@{ Width = 400; Height = 300 })
+        Get-Size $result.Path | Should -Be '400x300'
+        InModuleScope HOOPICS.Core { $script:EngineProcess } | Should -Not -BeNullOrEmpty -Because 'the real engine did the work'
+        InModuleScope HOOPICS.Core { Stop-HoopicsEngine }
+    }
+
+    It 'works when the temp folder name is outside the ANSI code page' {
+        # A Hangul user name on an English Windows; on a Korean Windows the name is ANSI and this passes trivially.
+        $temp = Join-Path $TestDrive ((-join [char[]](0xD64D, 0xAE38, 0xB3D9)) + ' temp')
+        New-Item -ItemType Directory -Path $temp | Out-Null
+        $out = Join-Path $TestDrive 'ansi-temp'
+        New-Item -ItemType Directory -Path $out | Out-Null
+        $command = @"
+`$env:TEMP = `$env:TMP = '$temp'
+Import-Module '$(Join-Path $AppDir 'HOOPICS.Core.psm1')'
+try { (Invoke-HoopicsImage -Path '$Picture' -Target @(@{ Scale = 2 }) -OutDir '$out').Path } finally { Stop-HoopicsEngine }
+"@
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+        $ErrorActionPreference = 'Continue'
+        $log = & powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1 | ForEach-Object { "$_" }
+        $LASTEXITCODE | Should -Be 0 -Because ($log -join "`n")
+        Get-Size (Join-Path $out 'picture_x2.png') | Should -Be '180x140'
     }
 }
 

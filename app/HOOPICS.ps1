@@ -42,7 +42,7 @@ function Get-ErrorText([string]$Message) {
         $code, $detail = $Matches[1], $Matches[2]
         $text = Get-Text "Err_$code"
         if ($text) {
-            if ($detail -and @('Engine', 'Download', 'Save') -contains $code) { return "$text ($detail)" }
+            if ($detail -and @('Engine', 'Runtime', 'Download', 'Save') -contains $code) { return "$text ($detail)" }
             return $text
         }
     }
@@ -133,6 +133,7 @@ $Worker = {
     } catch {
         $Sync.Fatal = $_.Exception.Message
     } finally {
+        try { Stop-HoopicsEngine } catch { }
         $Sync.Done = $true
     }
 }
@@ -389,7 +390,7 @@ try {
         }
         $sync = [hashtable]::Synchronized(@{
                 Stage = 'start'; Percent = 0.0; Index = 0; Count = $script:Files.Count; File = ''
-                Done = $false; CancelRequested = $false; Process = $null; Fatal = $null; WallpaperSet = $false
+                Done = $false; CancelRequested = $false; Process = $null; Note = $null; Fatal = $null; WallpaperSet = $false
                 Results = [Collections.ArrayList]::Synchronized((New-Object Collections.ArrayList))
                 Errors = [Collections.ArrayList]::Synchronized((New-Object Collections.ArrayList))
             })
@@ -454,7 +455,10 @@ try {
             $ui.Status.Text = Format-Text 'StatusDownload' $sync.Percent
         } elseif ($sync.Stage -eq 'image') {
             $ui.Progress.Value = 100 * ($sync.Index + $sync.Percent / 100) / $sync.Count
-            $ui.Status.Text = Format-Text 'StatusWorking' ($sync.Index + 1) $sync.Count $sync.File $sync.Percent
+            $status = Format-Text 'StatusWorking' ($sync.Index + 1) $sync.Count $sync.File $sync.Percent
+            if ($sync.Note -eq 'calibrate') { $status += "`n" + (Get-Text 'NoteCalibrate') }
+            if ($sync.Note -eq 'cpu') { $status += "`n" + (Get-Text 'NoteCpu') }
+            $ui.Status.Text = $status
         }
         if ($sync.Done) { Complete-Conversion }
     }

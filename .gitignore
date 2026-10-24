@@ -7,3 +7,6 @@
 # Editors
 .vscode/
 .idea/
+
+# Python byte code from the dev tools
+__pycache__/
