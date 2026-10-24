@@ -30,8 +30,10 @@ The first run downloads the AI engine (about 43 MB) from the official
 [Real-ESRGAN release](https://github.com/xinntao/Real-ESRGAN/releases/tag/v0.2.5.0) and checks its
 SHA-256 before using it. After that HOOPICS works offline.
 
-> **"Windows protected your PC"?** `start.bat` is not code-signed, so SmartScreen may ask once.
-> Click **More info → Run anyway**.
+> **Windows blocks `start.bat`?** Windows marks files from the internet, and with Smart App Control on it
+> refuses to run a marked `start.bat`. Delete the extracted folder, right-click the downloaded ZIP, choose
+> **Properties**, tick **Unblock**, click **OK** and extract it again. If SmartScreen asks instead, click
+> **More info → Run anyway**.
 
 ---
 
@@ -62,7 +64,7 @@ SHA-256 before using it. After that HOOPICS works offline.
 
 ## How it works
 
-1. The picture is read, turned upright, and copied into a temporary folder whose path is
+1. The picture is read, turned upright, and copied into a private temporary folder whose path is
    ASCII-only. The engine crashes when its output path contains characters such as Hangul, which
    is common in Korean Windows user names.
 2. [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) runs at its native 4× on the GPU through

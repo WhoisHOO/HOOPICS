@@ -70,7 +70,7 @@ if (-not ('Hoopics.Desktop' -as [type])) {
     Add-Type -Path (Join-Path $PSScriptRoot 'Native.cs')
 }
 
-$script:Version = '0.1.1'
+$script:Version = '0.1.2'
 $script:AppRoot = Split-Path -Parent $PSScriptRoot
 
 # Pinned upstream release; the download is rejected unless it matches this SHA-256.
