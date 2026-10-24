@@ -537,7 +537,7 @@ try {
     Import-Module '$(Join-Path $AppDir 'HOOPICS.Core.psm1')'
     (Invoke-HoopicsImage -Path '$Picture' -Target @(@{ Scale = 2 }) -OutDir '$out').Path
 } catch {
-    'error: ' + `$_.Exception.Message
+    'error: ' + `$_.Exception.ToString()
     `$odd = Get-ChildItem Env: | Where-Object { `$_.Value -match '[^\x20-\x7E]' } | ForEach-Object { `$_.Name + '=' + `$_.Value }
     'current folder: ' + [Environment]::CurrentDirectory + '; TEMP: ' + `$env:TEMP + '; non-ASCII variables: ' + (`$odd -join ', ')
     exit 1
