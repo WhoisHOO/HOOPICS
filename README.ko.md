@@ -8,6 +8,11 @@
 Windows 10/11 · 설치할 것 없음 · 모든 처리는 내 PC 안에서 · [MIT 라이선스](./LICENSE) ·
 [English](./README.md)
 
+> **여기는 `hoo-engine` 개발 브랜치입니다.** 새 모델을 준비하는 동안 HOOPICS를 우리 엔진(마이크로소프트
+> ONNX Runtime + DirectML)으로 돌리는 곳이라 아직 모델이 들어 있지 않습니다. HOOPICS를 쓰려면
+> [최신 릴리스](https://github.com/WhoisHOO/HOOPICS/releases/latest)를 받아 주세요. 계획은
+> [docs/ROADMAP.md](docs/ROADMAP.md)에 있습니다.
+
 <p align="center"><img src="docs/screenshot-ko.png" alt="HOOPICS 화면" width="440" /></p>
 
 | 일반적인 방법으로 확대 | HOOPICS로 확대 |
@@ -26,10 +31,13 @@ Windows 10/11 · 설치할 것 없음 · 모든 처리는 내 PC 안에서 · [M
 결과는 원본과 같은 폴더에 `원본이름_2560x1600.png` 처럼 저장됩니다("배율로 키우기"는 `원본이름_x2.png`).
 기존 파일은 절대 덮어쓰지 않고, 다시 만들면 `원본이름_2560x1600 (2).png` 처럼 번호가 붙습니다.
 
-**처음 한 번만** AI 엔진(약 43MB)을 [Real-ESRGAN 공식 배포처](https://github.com/xinntao/Real-ESRGAN/releases/tag/v0.2.5.0)에서
-내려받습니다. 내려받은 파일은 SHA-256 값으로 위변조 여부를 확인한 뒤 사용하고, 그다음부터는 인터넷 없이도 동작합니다.
+**처음 한 번만** AI 엔진(약 16MB)을 내려받습니다. 마이크로소프트의 ONNX Runtime, DirectML, Visual C++ 런타임을
+마이크로소프트 원본 그대로 묶어 HOOPICS와 함께 올려 둔 것입니다. 내려받은 파일과 그 안의 파일 하나하나를 SHA-256 값으로
+확인한 뒤 쓰고, 그다음부터는 인터넷 없이도 동작합니다.
 
-> **"Windows의 PC 보호" 창이 뜨나요?** `start.bat` 에 디지털 서명이 없어서 처음 한 번 뜰 수 있습니다.
+> **`start.bat` 이 실행되지 않나요?** Windows는 인터넷에서 받은 파일에 표시를 붙이고, 스마트 앱 컨트롤이 켜져 있으면
+> 이 표시가 있는 `start.bat` 을 막습니다. 압축을 푼 폴더를 지우고, 내려받은 ZIP 파일을 마우스 오른쪽 버튼으로 눌러
+> **속성** → **차단 해제** 를 체크하고 **확인** 을 누른 뒤 다시 압축을 풀어 주세요. "Windows의 PC 보호" 창이 뜨면
 > **추가 정보 → 실행** 을 누르면 됩니다.
 
 ---
@@ -53,12 +61,14 @@ Windows 10/11 · 설치할 것 없음 · 모든 처리는 내 PC 안에서 · [M
 ## 필요한 것
 
 - Windows 10 또는 11 (64비트). HOOPICS가 쓰는 PowerShell 5.1과 WPF는 Windows에 기본으로 들어 있습니다.
-- Vulkan을 지원하는 그래픽 카드. 최신 드라이버가 깔린 NVIDIA, AMD, Intel 그래픽이면 대부분 됩니다.
+- DirectX 12를 지원하는 그래픽카드(NVIDIA, AMD, Intel)가 있으면 빠릅니다. 없거나 처리 도중 그래픽카드에 문제가 생기면
+  CPU로 마저 처리합니다. 이때는 시간이 더 걸립니다.
 
 ## 자주 묻는 질문
 
-**변환이 실패해요.** 게임이나 AI 프로그램처럼 그래픽카드를 많이 쓰는 프로그램이 함께 켜져 있으면 실패할 수 있으니 닫고 다시 해 보세요.
-그래도 안 되면 그래픽 드라이버 문제인 경우가 많습니다. NVIDIA/AMD/Intel 홈페이지에서 최신 드라이버를 설치한 뒤 다시 해 보세요.
+**변환이 실패해요.** 엔진 파일이 손상되면 HOOPICS가 알아서 다시 내려받습니다. 그래픽카드 문제는 HOOPICS가 알아서 CPU로 넘어가므로
+실패하지 않고 느려지기만 합니다.
+느리다면 NVIDIA/AMD/Intel 홈페이지에서 최신 그래픽 드라이버를 설치해 보세요.
 
 **결과는 어디에 저장되나요?** 원본 이미지가 있는 폴더입니다. 끝나면 나오는 **결과 폴더 열기** 버튼으로 바로 열 수 있습니다.
 원본 폴더에 저장할 수 없으면 `사진\HOOPICS` 폴더에 저장합니다.
@@ -66,6 +76,7 @@ Windows 10/11 · 설치할 것 없음 · 모든 처리는 내 PC 안에서 · [M
 **이미지가 너무 작다고 나와요.** AI 확대는 최대 16배까지입니다. 그보다 큰 확대가 필요하면 더 큰 원본을 써 주세요.
 
 **인터넷으로 이미지가 전송되나요?** 아니요. 모든 처리는 내 PC 안에서만 이루어집니다. 인터넷은 처음 한 번 AI 엔진을 내려받을 때만 씁니다.
+ONNX Runtime의 사용 통계 기능도 꺼 둡니다. 자세한 내용은 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md#engine-runtime)에 있습니다.
 
 **지우고 싶어요.** 압축을 푼 폴더를 지우면 끝입니다. 언어 설정을 바꾼 적이 있다면 `%APPDATA%\HOOPICS` 폴더도 지우세요.
 
@@ -76,8 +87,8 @@ Windows 10/11 · 설치할 것 없음 · 모든 처리는 내 PC 안에서 · [M
 HOOPICS는 [MIT 라이선스](./LICENSE)로 공개되어, 누구나 자유롭게 쓰고 고치고 나눌 수 있습니다.
 
 화면, 해상도 프리셋, 화면 감지, 맞춤·자르기, 바탕화면 설정, 엔진 자동 설치 같은 HOOPICS 자체 기능은 이 저장소에서 새로 만든 코드입니다.
-실제로 그림을 키우는 AI 엔진은 외부 오픈소스입니다. 실행 엔진 Real-ESRGAN-ncnn-vulkan(MIT)과 그 안에 들어 있는 ncnn(BSD 3-Clause), glslang, libwebp(BSD 3-Clause), dirent(MIT)를 씁니다.
-AI 모델은 Real-ESRGAN 저장소(BSD 3-Clause)에서 받지만, 원저자가 모델 파일 자체의 라이선스는 밝히지 않았고, 사진 모델은 연구용으로만 허락된 데이터로 학습되었습니다.
+그림을 키우는 AI 엔진 코드(`app/engine`)도 이 저장소에서 새로 만든 코드입니다. 엔진이 내려받아 쓰는 런타임은 마이크로소프트 것입니다.
+ONNX Runtime(MIT), DirectML(마이크로소프트 DirectML 라이선스), .NET 라이브러리 4개(MIT), Visual C++ 런타임(Visual Studio 재배포 조건)으로 이루어져 있습니다.
 자세한 내용과 라이선스 원문은 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)에 있습니다. HOOPICS는 이들 저작자와 관계가 없으며, 그들의 보증을 받은 프로그램도 아닙니다.
 
 명령줄 사용법과 개발 방법은 [영어 README](./README.md#command-line)에 있습니다.

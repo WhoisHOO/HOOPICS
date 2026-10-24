@@ -9,6 +9,11 @@ pixel-perfect.
 Windows 10/11 · nothing to install · runs entirely on your PC · [MIT](./LICENSE) ·
 [한국어 안내 (Korean)](./README.ko.md)
 
+> **This is the `hoo-engine` development branch.** HOOPICS runs here on its own engine (Microsoft ONNX
+> Runtime with DirectML) while new models are being prepared, and it does not include models yet. To use
+> HOOPICS, download [the latest release](https://github.com/WhoisHOO/HOOPICS/releases/latest). The plan is
+> in [docs/ROADMAP.md](docs/ROADMAP.md).
+
 <p align="center"><img src="docs/screenshot-en.png" alt="The HOOPICS window" width="440" /></p>
 
 | Enlarged the usual way | Enlarged with HOOPICS |
@@ -26,12 +31,14 @@ Windows 10/11 · nothing to install · runs entirely on your PC · [MIT](./LICEN
 Results are saved next to the original as `name_2560x1600.png` (or `name_x2.png` for "Enlarge by").
 Nothing is ever overwritten; a second run makes `name_2560x1600 (2).png`.
 
-The first run downloads the AI engine (about 43 MB) from the official
-[Real-ESRGAN release](https://github.com/xinntao/Real-ESRGAN/releases/tag/v0.2.5.0) and checks its
-SHA-256 before using it. After that HOOPICS works offline.
+The first run downloads the AI engine (about 16 MB): Microsoft's ONNX Runtime, DirectML and Visual C++
+runtime, taken unmodified from Microsoft's own packages and published with HOOPICS. HOOPICS checks the
+SHA-256 of the download and of every file in it. After that it works offline.
 
-> **"Windows protected your PC"?** `start.bat` is not code-signed, so SmartScreen may ask once.
-> Click **More info → Run anyway**.
+> **Windows blocks `start.bat`?** Windows marks files from the internet, and with Smart App Control on it
+> refuses to run a marked `start.bat`. Delete the extracted folder, right-click the downloaded ZIP, choose
+> **Properties**, tick **Unblock**, click **OK** and extract it again. If SmartScreen asks instead, click
+> **More info → Run anyway**.
 
 ---
 
@@ -54,20 +61,21 @@ SHA-256 before using it. After that HOOPICS works offline.
 ## Requirements
 
 - Windows 10 or 11, 64-bit. PowerShell 5.1 and WPF, which HOOPICS is built on, ship with Windows.
-- A graphics card with Vulkan support: practically any NVIDIA, AMD or Intel GPU with a current
-  driver. If the AI step fails, close other programs that use the GPU heavily (games, AI tools) and
-  update the graphics driver.
+- Any DirectX 12 graphics card (NVIDIA, AMD or Intel) makes it fast. Without one, or if the graphics
+  card fails during a picture, HOOPICS finishes on the CPU, which is slower.
 
 ---
 
 ## How it works
 
-1. The picture is read, turned upright, and copied into a temporary folder whose path is
-   ASCII-only. The engine crashes when its output path contains characters such as Hangul, which
-   is common in Korean Windows user names.
-2. [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) runs at its native 4× on the GPU through
-   [ncnn and Vulkan](https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan), twice in a row when more
-   than 4× is needed (up to 16×).
+1. The picture is read, turned upright, and saved as a PNG in a temporary folder, so the engine only
+   ever reads files that HOOPICS wrote itself.
+2. The AI model runs at its native 4× on the GPU through Microsoft's
+   [ONNX Runtime](https://onnxruntime.ai) with DirectML, twice in a row when more than 4× is needed (up
+   to 16×). It works in tiles of 256 px, each with a margin of the picture around it so the seams do
+   not show. The engine (`app/engine`) is C# that Windows PowerShell compiles and loads from memory,
+   so every program file Windows loads is signed by Microsoft. It picks fp16 or fp32 by measuring
+   both on the first picture, checks every tile, and moves to the CPU if the GPU fails.
 3. The result is resampled to the exact target size with high-quality bicubic filtering, then
    cropped (*Fill*) or padded (*Fit*).
 
@@ -106,15 +114,22 @@ Other options: `-Model anime|anime-sharp|photo`, `-Mode fill|fit`, `-OutDir <fol
 | `app/HOOPICS.Core.psm1` | Engine install, presets, screen detection, image pipeline |
 | `app/Native.cs` | Win32/COM helpers: real screen sizes and per-screen wallpaper |
 | `app/hoopics-cli.ps1` | Command line |
-| `tests/` | Pester 5 tests; the engine is mocked, so no GPU is needed |
+| `app/engine/` | The AI engine: `HoopicsEngine.cs`, started through `hoopics-engine.ps1` |
+| `tests/` | Pester 5 tests; the engine tests use a tiny test model on the CPU, so no GPU is needed |
+| `dev/` | Developer tools: the runtime build, the test model, comparisons with the old engine |
 | `engine/` | Downloaded on first run, not in git |
 
 ## Development
 
 ```powershell
 Install-Module Pester -MinimumVersion 5.5 -Scope CurrentUser
+Import-Module .\app\HOOPICS.Core.psm1; Install-HoopicsEngine   # the engine tests need the runtime
 Invoke-Pester -Path tests
 ```
+
+Until HOOPICS has its own models, develop with the Real-ESRGAN models of HOOPICS 0.1.1: run 0.1.1 once
+so it installs them, then convert them into `engine/models` with `dev/parity/ncnn_to_onnx.py` (Python
+with numpy). `dev/parity/Compare-Engines.ps1` compares the old and the new engine.
 
 Keep `.ps1`, `.psm1`, `.xaml` and `.cs` files ASCII-only: Windows PowerShell 5.1 reads files
 without a BOM in the system code page. Put visible text in `app/strings.json`, in both languages;
@@ -125,14 +140,13 @@ a test checks that both have the same keys.
 ## Privacy
 
 Everything runs on your PC. The only network request HOOPICS makes is the one-time engine
-download from github.com.
+download from github.com. ONNX Runtime's usage events are turned off; see
+[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md#engine-runtime) for the details.
 
 ## License
 
-HOOPICS is released under the [MIT License](./LICENSE). The AI engine it downloads is third-party
-open source: Real-ESRGAN-ncnn-vulkan (MIT), built with ncnn (BSD 3-Clause), glslang (BSD/MIT/Apache
-2.0), libwebp (BSD 3-Clause) and dirent (MIT). The models come from the Real-ESRGAN repository
-(BSD 3-Clause), but upstream states no license for the trained weights, and the photo model was
-trained on data licensed for research only. Details and license texts are in
+HOOPICS is released under the [MIT License](./LICENSE). The engine runtime it downloads is
+Microsoft's: ONNX Runtime (MIT), DirectML (Microsoft's DirectML license), four .NET libraries (MIT)
+and the Visual C++ runtime (Visual Studio redistributable terms). Details and license texts are in
 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md). HOOPICS is not affiliated with or endorsed by
 their authors.

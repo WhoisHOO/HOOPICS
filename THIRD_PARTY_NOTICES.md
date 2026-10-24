@@ -1,13 +1,44 @@
 # Third-party notices
 
-HOOPICS itself is MIT licensed (see [LICENSE](LICENSE)). It does **not** ship the AI engine: on first run
-it downloads the official Windows build of
+HOOPICS itself is MIT licensed (see [LICENSE](LICENSE)). This repository holds no third-party program
+files: on first run HOOPICS downloads the engine runtime below, checks the SHA-256 of the download and
+of every DLL in it, and unpacks it into `engine/`. HOOPICS is not affiliated with or endorsed by these
+authors.
+
+## Engine runtime
+
+`hoopics-runtime-ort1.24.4-dml1.15.4-win-x64.zip` is a release asset of this repository. It is built by
+[`dev/runtime/Build-Runtime.ps1`](dev/runtime/Build-Runtime.ps1) from Microsoft's own packages, whose
+hashes it pins, and every file in it is Microsoft-signed and unmodified. Its `licenses` folder holds
+each component's license and notices.
+
+| Component | Used for | License |
+|---|---|---|
+| [ONNX Runtime](https://github.com/microsoft/onnxruntime) 1.24.4 (`onnxruntime.dll`, `Microsoft.ML.OnnxRuntime.dll`), from the NuGet packages Microsoft.ML.OnnxRuntime.DirectML and Microsoft.ML.OnnxRuntime.Managed | Runs the AI models | MIT; its third-party notices are in `licenses/onnxruntime-ThirdPartyNotices.txt` |
+| [DirectML](https://github.com/microsoft/DirectML) 1.15.4 (`DirectML.dll`), from the NuGet package Microsoft.AI.DirectML | Runs the models on any DirectX 12 GPU | Microsoft Software License Terms for DirectML: may be distributed as part of an application, not on its own. Notices for GSL, half and Zstandard are in `licenses/DirectML-ThirdPartyNotices.txt` |
+| System.Memory, System.Buffers, System.Numerics.Vectors and System.Runtime.CompilerServices.Unsafe | Needed by ONNX Runtime's .NET API | MIT (.NET Foundation) |
+| Microsoft Visual C++ runtime 14.44 (`msvcp140.dll`, `msvcp140_1.dll`, `vcruntime140.dll`, `vcruntime140_1.dll`) | Needed by `onnxruntime.dll` | Redistributed under the Visual Studio license terms for Distributable Code; HOOPICS's MIT license does not apply to them |
+
+Official ONNX Runtime builds send usage events through Windows' diagnostic data unless this is turned
+off (`licenses/onnxruntime-Privacy.md`). HOOPICS turns it off when the engine starts; the events that
+ONNX Runtime logs while it starts are sent only as far as your Windows diagnostic-data settings allow.
+The DirectML license says that the software may collect information about you and your use of it.
+
+## Models during development
+
+The `hoo-engine` branch develops the engine with the Real-ESRGAN models that HOOPICS 0.1.1 downloads,
+converted on the developer's PC by [`dev/parity/ncnn_to_onnx.py`](dev/parity/ncnn_to_onnx.py). The
+converted files are not distributed. HOOPICS 0.2 will use other models (see
+[docs/ROADMAP.md](docs/ROADMAP.md)); the rest of this file covers the Real-ESRGAN download of HOOPICS 0.1.1.
+
+## Real-ESRGAN engine (HOOPICS 0.1.1)
+
+HOOPICS 0.1.1 downloads the official Windows build of
 [Real-ESRGAN-ncnn-vulkan](https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan)
 (`realesrgan-ncnn-vulkan-20220424-windows.zip` from the
 [Real-ESRGAN v0.2.5.0 release](https://github.com/xinntao/Real-ESRGAN/releases/tag/v0.2.5.0)),
 checks its SHA-256 and unpacks the engine and the models into `engine/`. That download contains the
-software below, under the licenses reproduced here. HOOPICS is not affiliated with or endorsed by
-these authors.
+software below, under the licenses reproduced here.
 
 | Component | Used for | License |
 |---|---|---|
