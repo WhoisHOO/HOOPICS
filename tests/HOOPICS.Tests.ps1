@@ -288,9 +288,45 @@ Describe 'Engine install' {
         try { Test-HoopicsEngine | Should -BeFalse } finally { Remove-Item Env:\HOOPICS_ENGINE_DIR }
     }
 
-    It 'works in an ASCII-only folder, which the engine needs' {
+    It 'works in a private ASCII-only folder, which the engine needs' {
         $dir = InModuleScope HOOPICS.Core { New-WorkDirectory }
-        try { $dir | Should -Match '^[\x20-\x7E]+$' } finally { Remove-Item -LiteralPath $dir -Recurse -Force }
+        try {
+            $dir | Should -Match '^[\x20-\x7E]+$'
+            InModuleScope HOOPICS.Core -Parameters @{ Dir = $dir } { Test-PrivateDirectory $Dir } | Should -BeTrue -Because 'it holds the pictures'
+        } finally {
+            Remove-Item -LiteralPath $dir -Recurse -Force
+        }
+    }
+
+    It 'does not take a folder that other users can open for a private one' {
+        $dir = Join-Path $TestDrive 'shared'
+        New-Item -ItemType Directory -Path $dir | Out-Null
+        InModuleScope HOOPICS.Core -Parameters @{ Dir = $dir } { Test-PrivateDirectory $Dir } | Should -BeFalse
+    }
+
+    It 'starts when the temp folder name is outside the ANSI code page' {
+        # A Hangul user name on an English Windows; on a Korean Windows the name is ANSI and this passes trivially.
+        $temp = Join-Path $TestDrive ((-join [char[]](0xD64D, 0xAE38, 0xB3D9)) + ' temp')
+        New-Item -ItemType Directory -Path $temp | Out-Null
+        $command = @"
+`$ErrorActionPreference = 'Stop'
+`$env:TEMP = `$env:TMP = '$temp'
+try {
+    Import-Module '$(Join-Path $AppDir 'HOOPICS.Core.psm1')'
+    Add-Type -TypeDefinition 'public static class HoopicsTempProbe { public static int Two() { return 2; } }'
+    'temp: ' + [IO.Path]::GetTempPath()
+    'work: ' + (& (Get-Module HOOPICS.Core) { `$dir = New-WorkDirectory; Remove-Item -LiteralPath `$dir -Recurse -Force; `$dir })
+} catch {
+    'error: ' + `$_.Exception.ToString()
+    exit 1
+}
+"@
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+        $ErrorActionPreference = 'Continue'
+        $log = & powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1 | ForEach-Object { "$_" }
+        $LASTEXITCODE | Should -Be 0 -Because ($log -join "`n")
+        $log | Where-Object { $_ -like 'temp: *' } | Should -Match '^temp: [\x20-\x7E]+$'
+        $log | Where-Object { $_ -like 'work: *' } | Should -Match '^work: [\x20-\x7E]+$'
     }
 }
 

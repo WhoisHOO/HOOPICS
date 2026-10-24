@@ -3,6 +3,69 @@
 # Keep this file ASCII-only: Windows PowerShell 5.1 reads BOM-less scripts in the ANSI code page.
 
 Add-Type -AssemblyName System.Drawing
+
+function Get-ShortPath([string]$Path) {
+    try { (New-Object -ComObject Scripting.FileSystemObject).GetFolder($Path).ShortPath } catch { $null }
+}
+
+function Test-AsciiPath([string]$Path) {
+    # Without '?': a short-path lookup that finds no 8.3 name can hand back the name with '?' for each letter.
+    $Path -match '^[\x20-\x7E]+$' -and $Path -notmatch '[?*]'
+}
+
+# The private folders are open only to this user, SYSTEM and Administrators.
+$script:PrivateSids = @([Security.Principal.WindowsIdentity]::GetCurrent().User.Value, 'S-1-5-18', 'S-1-5-32-544')
+
+function New-PrivateDirectory([string]$Path) {
+    $security = New-Object Security.AccessControl.DirectorySecurity
+    $security.SetAccessRuleProtection($true, $false)
+    foreach ($sid in $script:PrivateSids) {
+        $security.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule (
+                    (New-Object Security.Principal.SecurityIdentifier $sid), 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')))
+    }
+    # The folders above it keep their usual permissions, so other users can add their own.
+    [void][IO.Directory]::CreateDirectory((Split-Path -Parent $Path))
+    [void][IO.Directory]::CreateDirectory($Path, $security)
+}
+
+function Test-PrivateDirectory([string]$Path) {
+    # Another user could have made the folder first, to read or swap what goes in it.
+    $acl = [IO.Directory]::GetAccessControl($Path)
+    if ($script:PrivateSids -notcontains $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value) { return $false }
+    if (-not $acl.AreAccessRulesProtected) { return $false }
+    foreach ($rule in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
+        if ($script:PrivateSids -notcontains $rule.IdentityReference.Value) { return $false }
+    }
+    $true
+}
+
+# Add-Type compiles with csc.exe, which cannot use a temp folder whose name has letters outside the ANSI code page,
+# such as a Hangul user name on an English Windows: CodeDom creates its folders there with ANSI calls, on some PCs
+# (seen elevated, on a build server) even from the long form of an 8.3 short name. Then use a private folder in
+# ProgramData, or the short name as a last resort. The engine, a child process, inherits the setting.
+# The private folder holds the code Add-Type compiles and loads, so it sits right in ProgramData, where other users
+# may not delete or rename it, and is checked each time in case someone else made it first.
+if (-not (Test-AsciiPath ([IO.Path]::GetTempPath()))) {
+    $privateTemp = Join-Path $env:ProgramData "HOOPICS-temp-$($script:PrivateSids[0])"
+    foreach ($dir in $privateTemp, (Get-ShortPath ([IO.Path]::GetTempPath()))) {
+        if (-not $dir -or -not (Test-AsciiPath $dir)) { continue }
+        try {
+            if ($dir -eq $privateTemp) {
+                if (-not [IO.Directory]::Exists($dir)) { New-PrivateDirectory $dir }
+                if (-not (Test-PrivateDirectory $dir)) { continue }
+            }
+            $probe = Join-Path $dir ('.hoopics-' + [guid]::NewGuid().ToString('N'))
+            [IO.File]::WriteAllText($probe, '')
+            [IO.File]::Delete($probe)
+            $env:TEMP = $dir
+            $env:TMP = $dir
+            break
+        } catch {
+            continue
+        }
+    }
+}
+
 if (-not ('Hoopics.Desktop' -as [type])) {
     Add-Type -Path (Join-Path $PSScriptRoot 'Native.cs')
 }
@@ -572,20 +635,17 @@ function Resolve-OutputDirectory([string]$Requested, [string]$InputPath) {
     $fallback
 }
 
-function Get-ShortPath([string]$Path) {
-    try { (New-Object -ComObject Scripting.FileSystemObject).GetFolder($Path).ShortPath } catch { $null }
-}
-
 function New-WorkDirectory {
     # The engine crashes when its output path has non-ASCII characters (e.g. a Korean user name
-    # inside %TEMP%), so the work folder must be ASCII-only.
+    # inside %TEMP%), so the work folder must be ASCII-only. It is private, as the last two
+    # candidates are shared by every user of the PC.
     $temp = [IO.Path]::GetTempPath()
     $candidates = @($temp, (Get-ShortPath $temp), (Join-Path $env:ProgramData 'HOOPICS'), (Join-Path $env:PUBLIC 'HOOPICS'))
     foreach ($base in $candidates) {
-        if (-not $base -or $base -notmatch '^[\x20-\x7E]+$') { continue }
+        if (-not $base -or -not (Test-AsciiPath $base)) { continue }
         $dir = Join-Path $base ('hoopics-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
         try {
-            New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop | Out-Null
+            New-PrivateDirectory $dir
             return $dir
         } catch {
             continue
