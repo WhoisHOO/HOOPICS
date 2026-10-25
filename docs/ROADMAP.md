@@ -1,6 +1,6 @@
 # HOOPICS 로드맵: 자체 AI 엔진으로 전환
 
-마지막 업데이트: 2026-10-24 (1단계 진행)
+마지막 업데이트: 2026-10-24 (2단계 평가)
 
 HOOPICS는 지금 Real-ESRGAN의 AI 모델과 그 실행 엔진(realesrgan-ncnn-vulkan, 텐센트 ncnn 기반)을 내려받아
 씁니다. 이 엔진이 HOO 도구 원칙에 맞지 않아서, 단계적으로 우리 엔진과 우리 모델로 바꿉니다.
@@ -22,6 +22,7 @@ HOOPICS는 지금 Real-ESRGAN의 AI 모델과 그 실행 엔진(realesrgan-ncnn-
 | 2026-10-24 | 엔진을 exe로 만들지 않고 Windows의 PowerShell 안에서 실행한다 (1단계 참고) |
 | 2026-10-24 | v0.1.1에도 있는 시작 문제 2개를 v0.1.2로 고친다 (아래 0단계) |
 | 2026-10-24 | VC++ 런타임은 작성자 본인의 Visual Studio Community 라이선스를 근거로 엔진 런타임에 넣어 배포한다 (1단계 참고) |
+| 2026-10-24 | 테스트와 모델 평가는 작성자의 노트북 한 대에서 할 수 있는 것으로 끝낸다. 다른 PC, 다른 사람의 평가, 저자 서면 확인은 하지 않는다 |
 
 ### 버전 전략
 
@@ -125,16 +126,56 @@ DirectML의 fp16은 이 GPU에서 오히려 느려서 fp32를 씁니다. 우리 
 
 ### 2단계: 중국 것이 아닌 모델 고르기
 
-| 후보 | 용도 | 만든 곳 | 라이선스 | 확인할 것 |
-|---|---|---|---|---|
-| [NERVE](https://huggingface.co/Phips/NERVE) | 사진·일반 | Philip Hofmann (스위스, 개인) | 코드·가중치 Apache-2.0, CC0 데이터로만 학습 | DirectML 동작과 속도, 품질. 공개 1개월이고 품질 평가는 저자 본인 것뿐 |
-| [waifu2x / nunif](https://github.com/nagadomi/nunif) | 애니·일러스트 | nagadomi (일본, 개인) | MIT | 공개된 ONNX가 DirectML에서 검은 화면이나 오류 → opset 17로 다시 내보내기. 학습 데이터는 2012년 크롤링(회색지대) |
+평가는 이 노트북에서 할 수 있는 것으로 끝냅니다(2026-10-24 결정). 다른 사람의 블라인드 비교와 저자의 서면 확인은 하지 않고,
+공개된 라이선스 표기와 아래 측정으로 판단합니다.
 
-- [ ] 두 후보를 1단계 엔진에서 실행하고 속도 측정
-- [ ] 블라인드 비교: 같은 그림 세트를 지금 Real-ESRGAN 결과와 나란히 놓고 고르기
-- [ ] 라이선스 서면 확인: nagadomi(waifu2x 가중치가 MIT인지), Philip Hofmann(출처 표기 방식)
-- [ ] NERVE 학습 데이터(LUCID CC0 v2)의 CC0 표기를 믿을 수 있는지 확인
-- [ ] 품질이 모자라면 v0.2.0 출시를 미룰지, 그대로 낼지 결정
+| 후보 | 용도 | 만든 곳 | 라이선스 | 결과 |
+|---|---|---|---|---|
+| [NERVE](https://huggingface.co/Phips/NERVE) | 사진·일반 | Philip Hofmann (스위스, 개인) | 코드·가중치 Apache-2.0. 학습 데이터는 PxHere 사진(CC0 표기) | 사진 모델 후보. 그림에서는 지금 모델보다 흐리거나 잡티가 생김 |
+| [waifu2x / nunif](https://github.com/nagadomi/nunif) | 애니·일러스트 | nagadomi (일본, 개인) | 저장소 MIT, 가중치 라이선스는 따로 밝히지 않음. 학습 데이터는 2012년 크롤링 | 학습 데이터가 원칙에 맞지 않아 제외. 수치로는 가장 좋지만 눈으로는 지금 모델보다 흐림 |
+
+- [x] 실행: NERVE 체크포인트(.safetensors)를 torch 없이 직접 읽어 ONNX로 바꿈(`dev/candidates/nerve_to_onnx.py`).
+  저자가 공개한 ONNX와 결과가 같음(최대 1/255 차이). bicubic 부분을 고정 합성곱으로 바꿔서, DirectML에 bicubic Resize가 없어
+  그 노드만 CPU로 넘기는 공개 ONNX보다 빠름. NERVE 학습에는 traiNNer-redux(BasicSR 계열 학습 코드)와 Real-ESRGAN 방식의 열화
+  합성을 썼지만, 모델 구조와 가중치는 저자 본인 것
+- [x] waifu2x 공개 ONNX는 DirectML에서 결과가 틀림(GTX·Iris 모두, CPU와 4~6 dB). 원인: PyTorch가 자르기(`F.pad`에 음수)를
+  음수 Pad로 내보내는데 DirectML이 이를 잘못 계산함. Slice로 바꾸면 CPU와 같아짐(107~128 dB). 입력 크기는 4의 배수여야 함
+- [x] 속도 (1178×661 → 4712×2644, 프로그램 시작 포함, fp16·fp32 측정 뒤):
+
+  | | GTX 1650 Ti | Iris Xe | CPU만 |
+  |---|---|---|---|
+  | Real-ESRGAN 사진 모델 (지금) | 22.8초 | - | - |
+  | NERVE 4x | 4.4초 (fp32) | 7.2초 (fp16) | 20~27초 |
+  | waifu2x swin_unet 4x | 12~56초 (큰 타일이 가끔 틀려 다시 계산) | 27초 (fp32) | - |
+  | waifu2x cunet 2x (2배만) | 2.4초 | - | - |
+
+- [x] 원본과 비교: Kodak 사진 24장(사용 제한 없음)과 Wikimedia Commons의 CC0 아니메풍 그림 11장을 1/4로 줄이고, 그대로인 것과
+  JPEG(사진 70, 그림 75)으로 손상한 것을 4배로 키워 원본과 비교(PSNR dB, 높을수록 원본에 가까움, 가장자리 8px 제외).
+  GAN 모델은 선명하게 만드는 대신 이 수치가 낮게 나옵니다.
+
+  | 모델 | 사진 | 사진 JPEG | 그림 | 그림 JPEG |
+  |---|---|---|---|---|
+  | bicubic | 25.93 | 24.75 | 24.66 | 23.96 |
+  | Real-ESRGAN 사진 (지금) | 25.16 | 24.28 | - | - |
+  | Real-ESRGAN 애니 (지금) | 25.68 | 24.83 | 27.25 | 26.61 |
+  | Real-ESRGAN 선명한 애니 (지금) | - | - | 27.78 | 27.40 |
+  | NERVE 4x release | 27.66 | 24.83 | 32.99 | 26.49 |
+  | NERVE 4x OTF fidelity | 27.03 | 25.35 | 29.18 | 27.06 |
+  | NERVE 4x OTF GAN | 26.02 | 24.38 | 29.73 | 27.33 |
+  | waifu2x swin_unet 4x | - | - | 36.44 | 31.42 |
+  | waifu2x cunet 2x 두 번 | - | - | 34.32 | 29.54 |
+
+- [x] 가린 비교: 모델 이름을 가리고 잘라낸 부분을 나란히 놓아 고른 뒤 이름을 확인함. 원본이 있는 것과 실제 저화질 그림(NERVE 예제 8장,
+  애니 화면 1장)을 합쳐 사진 8곳, 그림 15곳
+  - 사진: 지금 사진 모델이 4.5곳, NERVE GAN이 2.5곳, waifu2x가 1곳(글자)에서 가장 좋았음. 합성 손상 사진에서는 NERVE GAN이
+    비슷하거나 나았고, 실제 저화질 사진에서는 지금 모델이 나았음. 둘 다 작은 글자를 다른 모양으로 바꾸는 경우가 있었음
+  - 그림: 지금 선명한 애니 모델이 12곳에서 가장 좋았음(같은 수준 포함). waifu2x는 깨끗하지만 흐림. NERVE 중에서는 OTF fidelity가
+    가장 깨끗하고, release와 GAN은 JPEG 그림에 잡티가 생김
+- [x] 라이선스(서면 확인 없음): NERVE 가중치는 Apache-2.0로 밝혀져 있음. 학습 데이터 LUCID CC0 v2는 PxHere 사진으로 만들었고,
+  PxHere는 모든 사진을 CC0라고 밝히지만 사용자가 올린 사진이라 한 장씩 확인된 것은 아님. waifu2x 가중치는 MIT 저장소의 릴리스에
+  있지만 라이선스를 따로 밝히지 않았고, 학습 데이터가 크롤링이라 원칙에 맞지 않음
+- [ ] 결정: 사진 모델을 NERVE 4x OTF GAN으로 바꾸는 것, 그리고 애니·일러스트 품질이 지금보다 떨어지는데 v0.2.0을 낼지
+  (작성자 결정 대기)
 
 ### 3단계: 우리 사진 모델
 
@@ -248,6 +289,8 @@ DirectML의 fp16은 이 GPU에서 오히려 느려서 fp32를 씁니다. 우리 
 - Windows GPU 시간 초과(TDR): https://learn.microsoft.com/en-us/windows-hardware/drivers/display/timeout-detection-and-recovery
 - Smart App Control: https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4d56-882e-6698afdb7003
 - NERVE: https://huggingface.co/Phips/NERVE
+- NERVE 학습 데이터 LUCID CC0 v2: https://huggingface.co/datasets/Phips/lucid-cc0-v2-hc-512 , PxHere 라이선스: https://pxhere.com/en/license
 - waifu2x / nunif: https://github.com/nagadomi/nunif
+- 평가 그림: Kodak 사진 https://r0k.us/graphics/kodak/ , Wikimedia Commons의 CC0 그림(예: https://commons.wikimedia.org/wiki/File:Anime_Girl_Cola_Mateya.svg)
 - 논문: [ESPCN](https://arxiv.org/abs/1609.05158), [VDSR](https://arxiv.org/abs/1511.04587),
   [EDSR](https://arxiv.org/abs/1707.02921), [BSRGAN](https://arxiv.org/abs/2103.14006)
