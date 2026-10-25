@@ -70,7 +70,7 @@ if (-not ('Hoopics.Desktop' -as [type])) {
     Add-Type -Path (Join-Path $PSScriptRoot 'Native.cs')
 }
 
-$script:Version = '0.2.0-dev'
+$script:Version = '0.2.0'
 $script:AppRoot = Split-Path -Parent $PSScriptRoot
 
 # The engine runtime: ONNX Runtime with DirectML, its .NET API and the Visual C++ runtime, every file Microsoft-signed
