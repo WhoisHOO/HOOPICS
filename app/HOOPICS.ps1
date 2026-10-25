@@ -326,7 +326,7 @@ try {
 
         $selected = [Math]::Max(0, $ui.ModelBox.SelectedIndex)
         $ui.ModelBox.Items.Clear()
-        $models = [ordered]@{ 'anime' = 'ModelAnime'; 'anime-sharp' = 'ModelAnimeSharp'; 'photo' = 'ModelPhoto' }
+        $models = [ordered]@{ 'anime' = 'ModelAnime'; 'photo' = 'ModelPhoto' }
         foreach ($model in $models.Keys) {
             $item = New-Object Windows.Controls.ComboBoxItem
             $item.Content = Get-Text $models[$model]

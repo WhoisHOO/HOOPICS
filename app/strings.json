@@ -23,7 +23,6 @@
     "SizeFormat": "{0} × {1}",
     "StepModel": "3. 그림 종류",
     "ModelAnime": "애니메이션·일러스트 (추천)",
-    "ModelAnimeSharp": "애니메이션·일러스트 - 더 선명하게",
     "ModelPhoto": "실제 사진",
     "StepMode": "4. 화면과 그림 비율이 다르면",
     "ModeFill": "꽉 채우기 (가장자리 잘림)",
@@ -43,7 +42,7 @@
     "InvalidCustom": "가로와 세로를 16~16384 사이의 숫자로 입력해 주세요.",
     "NoScreens": "화면을 감지하지 못했습니다. 다른 항목에서 해상도를 골라 주세요.",
     "Unsupported": "지원하지 않는 파일입니다. JPG, PNG, WEBP, BMP, GIF, TIFF를 넣어 주세요.",
-    "StatusDownload": "AI 엔진 내려받는 중 (처음 한 번만, 약 16MB) · {0:0}%",
+    "StatusDownload": "AI 엔진과 모델 내려받는 중 (처음 한 번만, 약 36MB) · {0:0}%",
     "StatusWorking": "{0}/{1} · {2} 처리 중 · {3:0}%",
     "StatusDone": "완료! 파일 {0}개를 저장했습니다.",
     "StatusWallpaper": "바탕화면도 바꿨습니다.",
@@ -63,7 +62,7 @@
     "Err_Canceled": "취소했습니다.",
     "OpenDialogTitle": "이미지 고르기",
     "OpenDialogFilter": "이미지|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif;*.tif;*.tiff",
-    "Footer": "HOOPICS {0} · AI 엔진 Real-ESRGAN · 모든 처리는 이 PC 안에서만 이루어집니다",
+    "Footer": "HOOPICS {0} · AI 모델 NERVE · 모든 처리는 이 PC 안에서만 이루어집니다",
     "Fatal": "HOOPICS에서 오류가 났습니다.\n\n{0}"
   },
   "en": {
@@ -90,7 +89,6 @@
     "SizeFormat": "{0} × {1}",
     "StepModel": "3. Picture type",
     "ModelAnime": "Anime & illustration (recommended)",
-    "ModelAnimeSharp": "Anime & illustration - extra sharp",
     "ModelPhoto": "Photo",
     "StepMode": "4. If the shape does not match",
     "ModeFill": "Fill (trims the edges)",
@@ -110,7 +108,7 @@
     "InvalidCustom": "Enter a width and height between 16 and 16384.",
     "NoScreens": "No screens detected. Pick a resolution from another tab.",
     "Unsupported": "Unsupported file. Use JPG, PNG, WEBP, BMP, GIF or TIFF.",
-    "StatusDownload": "Downloading the AI engine (first run only, about 16 MB) · {0:0}%",
+    "StatusDownload": "Downloading the AI engine and models (first run only, about 36 MB) · {0:0}%",
     "StatusWorking": "{0}/{1} · processing {2} · {3:0}%",
     "StatusDone": "Done! Saved {0} file(s).",
     "StatusWallpaper": "Desktop background updated.",
@@ -130,7 +128,7 @@
     "Err_Canceled": "Canceled.",
     "OpenDialogTitle": "Choose images",
     "OpenDialogFilter": "Images|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.gif;*.tif;*.tiff",
-    "Footer": "HOOPICS {0} · AI engine Real-ESRGAN · everything stays on this PC",
+    "Footer": "HOOPICS {0} · AI model NERVE · everything stays on this PC",
     "Fatal": "HOOPICS ran into an error.\n\n{0}"
   }
 }

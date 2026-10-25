@@ -19,7 +19,7 @@ param(
     [switch] $Screens,
     # With -Screens and a single input: also set each result as that screen's background.
     [switch] $SetWallpaper,
-    [ValidateSet('anime', 'anime-sharp', 'photo')] [string] $Model = 'anime',
+    [ValidateSet('anime', 'photo')] [string] $Model = 'anime',
     [ValidateSet('fill', 'fit')] [string] $Mode = 'fill',
     [ValidateSet('png', 'jpg')] [string] $Format = 'png',
     # Defaults to the folder of each input image.
@@ -64,7 +64,7 @@ try {
     }
 
     if (-not (Test-HoopicsEngine)) {
-        Write-Host 'Downloading the AI engine (first run only, about 16 MB)...'
+        Write-Host 'Downloading the AI engine and models (first run only, about 36 MB)...'
         [void](Install-HoopicsEngine)
     }
 

@@ -1,0 +1,63 @@
+name: Models
+
+# Builds the model ZIP (dev/models/Build-Models.ps1) and publishes it as a release asset for the pushed tag, e.g.
+# models-nerve-r1. HOOPICS pins the ZIP's SHA-256, so a published asset is never replaced: a new build gets a new tag.
+on:
+  push:
+    tags: ['models-*']
+
+permissions:
+  contents: write
+
+jobs:
+  models:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Build
+        id: build
+        shell: powershell
+        run: |
+          python -m pip install --disable-pip-version-check numpy==2.4.6
+          if ($LASTEXITCODE) { throw 'pip install failed' }
+          .\dev\models\Build-Models.ps1 -OutDir "$env:RUNNER_TEMP\models" -Python python
+
+      - name: Publish
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          NAME: ${{ steps.build.outputs.name }}
+          ZIP: ${{ steps.build.outputs.zip }}
+          SHA256: ${{ steps.build.outputs.sha256 }}
+          MANIFEST: ${{ steps.build.outputs.manifest }}
+        run: |
+          # HOOPICS pins this ZIP's SHA-256; a build that differs must not be published under it.
+          $pattern = "Name\s*=\s*'$([regex]::Escape($env:NAME))'[\s\S]*?Sha256\s*=\s*'([0-9A-F]{64})'"
+          $pin = [regex]::Match((Get-Content -Raw app\HOOPICS.Core.psm1), $pattern).Groups[1].Value
+          if ($pin -ne $env:SHA256.ToUpperInvariant()) { throw "This build's SHA-256 is $env:SHA256, but HOOPICS pins $pin." }
+          $notes = @(
+            'AI models for HOOPICS: NERVE 4x OTF GAN (photos) and NERVE 4x OTF fidelity (anime and illustration) by Philip Hofmann, Apache-2.0, converted to ONNX in fp32 and fp16.'
+            'dev/models/Build-Models.ps1 lists the sources and their pinned hashes; licenses/NERVE-NOTICE.txt in the ZIP says what was changed.'
+            'This is not a HOOPICS release. HOOPICS downloads it by itself.'
+            ''
+            "ZIP SHA-256: $env:SHA256"
+          ) -join "`n"
+          # Draft first, so the release never shows without its files; never the "latest" release.
+          gh release create $env:TAG --draft --prerelease --latest=false --title "Models ($env:TAG)" --notes $notes
+          if ($LASTEXITCODE) { throw 'gh release create failed' }
+          gh release upload $env:TAG $env:ZIP $env:MANIFEST
+          if ($LASTEXITCODE) { throw 'gh release upload failed' }
+          # GitHub's own record of what it stored must match what was built, before anyone can download it.
+          $name = Split-Path -Leaf $env:ZIP
+          $assets = gh release view $env:TAG --json assets --jq '.assets[] | [.name, .digest] | @tsv'
+          $digest = $assets | Where-Object { $_.Split("`t")[0] -eq $name } | ForEach-Object { $_.Split("`t")[1] }
+          if ($digest -ne "sha256:$env:SHA256") { throw "GitHub reports $digest for $name, not sha256:$env:SHA256" }
+          gh release edit $env:TAG --draft=false
+          if ($LASTEXITCODE) { throw 'gh release edit failed' }
+          "$name SHA-256 $env:SHA256" | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY

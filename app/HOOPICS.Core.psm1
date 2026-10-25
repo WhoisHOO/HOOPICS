@@ -80,6 +80,7 @@ $script:Runtime = [pscustomobject]@{
     Name   = 'hoopics-runtime-ort1.24.4-dml1.15.4-win-x64'
     Url    = 'https://github.com/WhoisHOO/HOOPICS/releases/download/runtime-ort1.24.4-dml1.15.4-r1/hoopics-runtime-ort1.24.4-dml1.15.4-win-x64.zip'
     Sha256 = '024859A755740A88A73956B96D898238F1B1884E7D65751168064CC5685740CB'
+    Size   = 16058086
     Files  = @{
         'onnxruntime.dll'                            = 'E7EEDEC6A6F26DC39DC948276A75EF6D2BEE3FFF944D874CEED0BBD3B97BFF40'
         'DirectML.dll'                               = '9C9E6D822561C6C41B90E6994B3E8857CF1D66DBFB1E0C4C799C7C89B4E92DA1'
@@ -95,15 +96,29 @@ $script:Runtime = [pscustomobject]@{
     }
 }
 
-# Models are <File>.fp32.onnx and/or <File>.fp16.onnx in engine\models. Every model runs at its native 4x and the
+# The AI models: two NERVE models by Philip Hofmann (Apache-2.0), converted to ONNX by dev\models\Build-Models.ps1
+# from the author's checkpoints, whose hashes it pins. Checked like the runtime.
+$script:ModelPack = [pscustomobject]@{
+    Name   = 'hoopics-models-nerve-r1'
+    Url    = 'https://github.com/WhoisHOO/HOOPICS/releases/download/models-nerve-r1/hoopics-models-nerve-r1.zip'
+    Sha256 = 'F5818D4BCBB045F7EC63C59B6A097B656C6AE6C203377D07388D66753976245F'
+    Size   = 20160696
+    Files  = @{
+        '4x_NERVE_OTF_gan.fp32.onnx'      = 'D681343E82527FD7B548601E9F793B04751195A6B57F63F3087463606AD7E0D4'
+        '4x_NERVE_OTF_gan.fp16.onnx'      = '7F206D25A18E99F46512899839CD9A1C2B749498C441E58AFC5EB916E122E062'
+        '4x_NERVE_OTF_fidelity.fp32.onnx' = 'E0CF7B571CD518C1ACE242B0755714FB2ECEBFBF7DA0E2A52A4C1EE7792C003E'
+        '4x_NERVE_OTF_fidelity.fp16.onnx' = '4F31CB436DA3CF4953FF22D866D183DB2259CEBF6D9579A4A4660FBBF63BD935'
+    }
+}
+
+# Models are <File>.fp32.onnx and <File>.fp16.onnx in the model folder. Every model runs at its native 4x and the
 # result is resampled to the exact target size. Tile is the piece of the picture the GPU takes at once; Pad is the
-# context around each piece that keeps the seams invisible (models that look further need more).
-# For now these are development models: Real-ESRGAN converted with dev\parity\ncnn_to_onnx.py, never shipped
-# (see docs\ROADMAP.md).
+# context around each piece that keeps the seams invisible: NERVE sees about 50 px around each pixel, and tiles
+# stopped getting closer to the whole picture beyond 32 (docs\ROADMAP.md, stage 5).
+# Anime and illustration get the fidelity model: the GAN one adds grain to flat colours and outlines.
 $script:Models = [ordered]@{
-    'anime'       = @{ File = 'realesr-animevideov3-x4'; Tile = 256; Pad = 16 }
-    'anime-sharp' = @{ File = 'realesrgan-x4plus-anime'; Tile = 256; Pad = 24 }
-    'photo'       = @{ File = 'realesrgan-x4plus'; Tile = 256; Pad = 24 }
+    'anime' = @{ File = '4x_NERVE_OTF_fidelity'; Tile = 256; Pad = 32 }
+    'photo' = @{ File = '4x_NERVE_OTF_gan'; Tile = 256; Pad = 32 }
 }
 
 $script:InputExtensions = @('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif', '.tif', '.tiff')
@@ -227,18 +242,35 @@ function Get-RuntimeDirectory {
     Join-Path (Get-EngineDirectory) $script:Runtime.Name
 }
 
+function Get-ModelDirectory {
+    if ($env:HOOPICS_MODEL_DIR) { return $env:HOOPICS_MODEL_DIR }
+    Join-Path (Get-EngineDirectory) $script:ModelPack.Name
+}
+
 function Get-ModelPath([string]$Model) {
-    $dir = if ($env:HOOPICS_MODEL_DIR) { $env:HOOPICS_MODEL_DIR } else { Join-Path (Get-EngineDirectory) 'models' }
-    Join-Path $dir $script:Models[$Model].File
+    Join-Path (Get-ModelDirectory) $script:Models[$Model].File
+}
+
+# What HOOPICS downloads, each into its own folder. Models in HOOPICS_MODEL_DIR are a developer's own and used as
+# they are.
+function Get-EnginePackage {
+    [pscustomobject]@{ Package = $script:Runtime; Directory = Get-RuntimeDirectory; Error = 'Runtime' }
+    if (-not $env:HOOPICS_MODEL_DIR) { [pscustomobject]@{ Package = $script:ModelPack; Directory = Get-ModelDirectory; Error = 'Model' } }
+}
+
+function Test-EnginePackage($Package, [string]$Directory) {
+    # Every file, by its pinned SHA-256, each time: a damaged or swapped file means installing again.
+    foreach ($file in $Package.Files.Keys) {
+        $path = Join-Path $Directory $file
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
+        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $Package.Files[$file]) { return $false }
+    }
+    $true
 }
 
 function Test-HoopicsEngine {
-    # Every DLL, by its pinned SHA-256, each time: a damaged or swapped file means installing again.
-    $dir = Get-RuntimeDirectory
-    foreach ($file in $script:Runtime.Files.Keys) {
-        $path = Join-Path $dir $file
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $false }
-        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $script:Runtime.Files[$file]) { return $false }
+    foreach ($item in Get-EnginePackage) {
+        if (-not (Test-EnginePackage $item.Package $item.Directory)) { return $false }
     }
     $true
 }
@@ -251,7 +283,7 @@ function Set-Progress($State, [string]$Activity, [double]$Percent) {
     }
 }
 
-function Save-EngineArchive([string]$Url, [string]$Destination, $State) {
+function Save-EngineArchive([string]$Url, [string]$Destination, $State, [double]$ProgressBase = 0, [double]$ProgressSpan = 100) {
     # GitHub needs TLS 1.2, which Windows PowerShell 5.1 does not always enable by default.
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
     try {
@@ -272,7 +304,7 @@ function Save-EngineArchive([string]$Url, [string]$Destination, $State) {
                 if ($State -and $State.CancelRequested) { throw (New-HoopicsError 'Canceled') }
                 $out.Write($buffer, 0, $read)
                 $done += $read
-                if ($total -gt 0) { Set-Progress $State 'Downloading the AI engine' (100.0 * $done / $total) }
+                if ($total -gt 0) { Set-Progress $State 'Downloading the AI engine' ($ProgressBase + $ProgressSpan * $done / $total) }
             }
         } catch [Net.WebException], [IO.IOException] {
             throw (New-HoopicsError 'Download' $_.Exception.Message)
@@ -292,14 +324,14 @@ function Assert-FileHash([string]$Path, [string]$Sha256) {
     }
 }
 
-function Expand-EngineArchive([string]$Path, [string]$Destination) {
+function Expand-EngineArchive([string]$Path, [string]$Destination, $Package) {
     Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
     $archive = [IO.Compression.ZipFile]::OpenRead($Path)
     try {
         foreach ($entry in $archive.Entries) {
-            # Only the pinned DLLs and the license texts; neither pattern can climb out of $Destination.
+            # Only the pinned files and the license texts; neither pattern can climb out of $Destination.
             $name = $entry.FullName.Replace('\', '/')
-            if (-not $script:Runtime.Files.ContainsKey($name) -and $name -notmatch '^licenses/[A-Za-z0-9._-]+\.(?:txt|md)$') { continue }
+            if (-not $Package.Files.ContainsKey($name) -and $name -notmatch '^licenses/[A-Za-z0-9._-]+\.(?:txt|md)$') { continue }
             $target = Join-Path $Destination $name.Replace('/', '\')
             $parent = Split-Path -Parent $target
             if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
@@ -308,39 +340,49 @@ function Expand-EngineArchive([string]$Path, [string]$Destination) {
     } finally {
         $archive.Dispose()
     }
-    foreach ($file in $script:Runtime.Files.Keys) {
+    foreach ($file in $Package.Files.Keys) {
         $path = Join-Path $Destination $file
         if (-not (Test-Path -LiteralPath $path)) { throw (New-HoopicsError 'Checksum' "$file is missing") }
-        Assert-FileHash $path $script:Runtime.Files[$file]
+        Assert-FileHash $path $Package.Files[$file]
     }
 }
 
-function Install-HoopicsEngine {
-    param($State)
-    $target = Get-RuntimeDirectory
-    if (Test-HoopicsEngine) { return $target }
+function Install-EnginePackage($Item, $State, [double]$ProgressBase, [double]$ProgressSpan) {
+    $package, $target = $Item.Package, $Item.Directory
     $parent = Split-Path -Parent $target
     New-Item -ItemType Directory -Path $parent -Force | Out-Null
     # Names of its own, so that two HOOPICS windows installing at once do not delete each other's files.
     $id = [guid]::NewGuid().ToString('N').Substring(0, 8)
-    $zip = Join-Path $parent "$($script:Runtime.Name).$id.zip.part"
+    $zip = Join-Path $parent "$($package.Name).$id.zip.part"
     $staging = "$target.$id.staging"
     try {
-        Save-EngineArchive -Url $script:Runtime.Url -Destination $zip -State $State
-        Assert-FileHash $zip $script:Runtime.Sha256
-        Expand-EngineArchive -Path $zip -Destination $staging
+        Save-EngineArchive -Url $package.Url -Destination $zip -State $State -ProgressBase $ProgressBase -ProgressSpan $ProgressSpan
+        Assert-FileHash $zip $package.Sha256
+        Expand-EngineArchive -Path $zip -Destination $staging -Package $package
         try {
             if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop }
             Rename-Item -LiteralPath $staging -NewName (Split-Path -Leaf $target) -ErrorAction Stop
         } catch {
             # Another HOOPICS may have installed it meanwhile, or a running engine holds the old files.
-            if (-not (Test-HoopicsEngine)) { throw (New-HoopicsError 'Runtime' $_.Exception.Message) }
+            if (-not (Test-EnginePackage $package $target)) { throw (New-HoopicsError $Item.Error $_.Exception.Message) }
         }
     } finally {
         Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
     }
-    $target
+}
+
+# Downloads whatever is missing or damaged: the runtime, the models or both. Returns the runtime folder.
+function Install-HoopicsEngine {
+    param($State)
+    $missing = @(Get-EnginePackage | Where-Object { -not (Test-EnginePackage $_.Package $_.Directory) })
+    $total = [double](($missing | ForEach-Object { $_.Package.Size } | Measure-Object -Sum).Sum)
+    $done = 0.0
+    foreach ($item in $missing) {
+        Install-EnginePackage $item $State (100.0 * $done / $total) (100.0 * $item.Package.Size / $total)
+        $done += $item.Package.Size
+    }
+    Get-RuntimeDirectory
 }
 
 function Get-PowerShellPath {
@@ -727,22 +769,14 @@ function Resolve-OutputDirectory([string]$Requested, [string]$InputPath) {
 }
 
 function New-WorkDirectory {
-    # An ASCII-only path. The Real-ESRGAN engine of HOOPICS 0.1.x crashed on others (e.g. a Korean user
-    # name inside %TEMP%); ours does not, so this can go with the rest of Real-ESRGAN in 0.2.0. It is
-    # private, as the last two candidates are shared by every user of the PC.
-    $temp = [IO.Path]::GetTempPath()
-    $candidates = @($temp, (Get-ShortPath $temp), (Join-Path $env:ProgramData 'HOOPICS'), (Join-Path $env:PUBLIC 'HOOPICS'))
-    foreach ($base in $candidates) {
-        if (-not $base -or -not (Test-AsciiPath $base)) { continue }
-        $dir = Join-Path $base ('hoopics-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
-        try {
-            New-PrivateDirectory $dir
-            return $dir
-        } catch {
-            continue
-        }
+    # Private, as it holds the user's pictures. Any name works: the engine takes paths as UTF-8.
+    $dir = Join-Path ([IO.Path]::GetTempPath()) ('hoopics-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
+    try {
+        New-PrivateDirectory $dir
+    } catch {
+        throw (New-HoopicsError 'WorkDir' $_.Exception.Message)
     }
-    throw (New-HoopicsError 'WorkDir')
+    $dir
 }
 
 function Invoke-HoopicsImage {
@@ -756,7 +790,7 @@ function Invoke-HoopicsImage {
     param(
         [Parameter(Mandatory)] [string] $Path,
         [Parameter(Mandatory)] [object[]] $Target,
-        [ValidateSet('anime', 'anime-sharp', 'photo')] [string] $Model = 'anime',
+        [ValidateSet('anime', 'photo')] [string] $Model = 'anime',
         [ValidateSet('fill', 'fit')] [string] $Mode = 'fill',
         [ValidateSet('png', 'jpg')] [string] $Format = 'png',
         [string] $OutDir,

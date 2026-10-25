@@ -42,8 +42,8 @@ Describe 'Presets and models' {
         foreach ($preset in Get-HoopicsPreset -Category phone) { $preset.Height | Should -BeGreaterThan $preset.Width }
     }
 
-    It 'lists the three models' {
-        Get-HoopicsModel | Should -Be @('anime', 'anime-sharp', 'photo')
+    It 'lists the two models' {
+        Get-HoopicsModel | Should -Be @('anime', 'photo')
     }
 }
 
@@ -292,9 +292,7 @@ Describe 'Engine install' {
         }
         function Expand-WithPins([string]$Zip, [string]$Out, [hashtable]$Pins) {
             InModuleScope HOOPICS.Core -Parameters @{ Zip = $Zip; Out = $Out; Pins = $Pins } {
-                $saved = $script:Runtime
-                $script:Runtime = [pscustomobject]@{ Files = $Pins }
-                try { Expand-EngineArchive -Path $Zip -Destination $Out } finally { $script:Runtime = $saved }
+                Expand-EngineArchive -Path $Zip -Destination $Out -Package ([pscustomobject]@{ Files = $Pins })
             }
         }
         $Pins = @{ 'onnxruntime.dll' = (Get-TextHash 'ort'); 'DirectML.dll' = (Get-TextHash 'dml') }
@@ -339,11 +337,46 @@ Describe 'Engine install' {
         }
     }
 
+    It 'pins both precisions of every model' {
+        $pinned = InModuleScope HOOPICS.Core { @($script:ModelPack.Files.Keys) }
+        foreach ($file in InModuleScope HOOPICS.Core { @($script:Models.Values | ForEach-Object { $_.File }) }) {
+            $pinned | Should -Contain "$file.fp32.onnx"
+            $pinned | Should -Contain "$file.fp16.onnx"
+        }
+    }
+
+    It 'pins the model ZIP that dev\models\Build-Models.ps1 makes' {
+        # The release workflow checks the build against this pin; the build checks each model against its own list.
+        $build = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $AppDir) 'dev\models\Build-Models.ps1')
+        foreach ($entry in (InModuleScope HOOPICS.Core { $script:ModelPack.Files }).GetEnumerator()) {
+            $build | Should -Match ("'{0}'\s*=\s*'{1}'" -f [regex]::Escape($entry.Key), $entry.Value.ToLowerInvariant())
+        }
+        $build | Should -Match ("Name = '{0}'" -f (InModuleScope HOOPICS.Core { $script:ModelPack.Name }))
+    }
+
     It 'treats an empty engine folder as not installed' {
-        $saved = $env:HOOPICS_ENGINE_DIR, $env:HOOPICS_RUNTIME_DIR
+        $saved = $env:HOOPICS_ENGINE_DIR, $env:HOOPICS_RUNTIME_DIR, $env:HOOPICS_MODEL_DIR
         $env:HOOPICS_ENGINE_DIR = Join-Path $TestDrive 'nothing-here'
         $env:HOOPICS_RUNTIME_DIR = $null
-        try { Test-HoopicsEngine | Should -BeFalse } finally { $env:HOOPICS_ENGINE_DIR, $env:HOOPICS_RUNTIME_DIR = $saved }
+        $env:HOOPICS_MODEL_DIR = $null
+        try { Test-HoopicsEngine | Should -BeFalse } finally { $env:HOOPICS_ENGINE_DIR, $env:HOOPICS_RUNTIME_DIR, $env:HOOPICS_MODEL_DIR = $saved }
+    }
+
+    It 'treats a model with a changed file as not installed' {
+        $dir = Join-Path $TestDrive 'changed-models'
+        New-Item -ItemType Directory -Path $dir | Out-Null
+        foreach ($name in (InModuleScope HOOPICS.Core { @($script:ModelPack.Files.Keys) })) { Set-Content -LiteralPath (Join-Path $dir $name) -Value 'x' }
+        InModuleScope HOOPICS.Core -Parameters @{ Dir = $dir } { Test-EnginePackage $script:ModelPack $Dir } | Should -BeFalse
+    }
+
+    It 'leaves the models of HOOPICS_MODEL_DIR unchecked' {
+        $saved = $env:HOOPICS_MODEL_DIR
+        $env:HOOPICS_MODEL_DIR = Join-Path $TestDrive 'my-models'
+        try {
+            @(InModuleScope HOOPICS.Core { Get-EnginePackage }).Package.Name | Should -Be @(InModuleScope HOOPICS.Core { $script:Runtime.Name })
+        } finally {
+            $env:HOOPICS_MODEL_DIR = $saved
+        }
     }
 
     It 'treats a runtime with a changed DLL as not installed' {
@@ -355,10 +388,9 @@ Describe 'Engine install' {
         try { Test-HoopicsEngine | Should -BeFalse } finally { $env:HOOPICS_RUNTIME_DIR = $saved }
     }
 
-    It 'works in a private ASCII-only folder' {
+    It 'works in a private folder' {
         $dir = InModuleScope HOOPICS.Core { New-WorkDirectory }
         try {
-            $dir | Should -Match '^[\x20-\x7E]+$'
             InModuleScope HOOPICS.Core -Parameters @{ Dir = $dir } { Test-PrivateDirectory $Dir } | Should -BeTrue -Because 'it holds the pictures'
         } finally {
             Remove-Item -LiteralPath $dir -Recurse -Force
@@ -401,7 +433,7 @@ try {
 # neighbour). It needs the engine runtime: install it with Install-HoopicsEngine, or point HOOPICS_RUNTIME_DIR at it.
 BeforeDiscovery {
     Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'app\HOOPICS.Core.psm1') -Force
-    $RuntimeReady = Test-HoopicsEngine
+    $RuntimeReady = & (Get-Module HOOPICS.Core) { Test-EnginePackage $script:Runtime (Get-RuntimeDirectory) }
 }
 
 Describe 'Engine runs' -Skip:(-not $RuntimeReady) {
@@ -412,8 +444,9 @@ Describe 'Engine runs' -Skip:(-not $RuntimeReady) {
         # The core's model names, backed by the test model.
         $ModelDir = Join-Path $TestDrive 'models'
         New-Item -ItemType Directory -Path $ModelDir | Out-Null
+        $animeFile = InModuleScope HOOPICS.Core { $script:Models['anime'].File }
         foreach ($precision in 'fp32', 'fp16') {
-            Copy-Item (Join-Path $Fixtures "blur-x4.$precision.onnx") (Join-Path $ModelDir "realesr-animevideov3-x4.$precision.onnx")
+            Copy-Item (Join-Path $Fixtures "blur-x4.$precision.onnx") (Join-Path $ModelDir "$animeFile.$precision.onnx")
         }
         $SavedEnvironment = @{}
         foreach ($name in 'HOOPICS_MODEL_DIR', 'HOOPICS_ENGINE_DEVICE', 'HOOPICS_ENGINE_DIR', 'HOOPICS_RUNTIME_DIR') {

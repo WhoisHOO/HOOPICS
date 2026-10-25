@@ -1,8 +1,8 @@
 """Convert a NERVE checkpoint (.safetensors) to the ONNX files the HOOPICS engine opens.
 
-NERVE (https://huggingface.co/Phips/NERVE, Philip Hofmann, Apache-2.0) is a 2026 candidate for our photo model; see
-docs/ROADMAP.md, stage 2. Reads the safetensors file directly (a JSON header and raw tensors: no pickle, no torch)
-and writes the network from nerve_arch.py as ONNX opset 17:
+NERVE (https://huggingface.co/Phips/NERVE, Philip Hofmann, Apache-2.0) gives HOOPICS 0.2 its models; Build-Models.ps1
+runs this on the pinned checkpoints. Reads the safetensors file directly (a JSON header and raw tensors: no pickle,
+no torch) and writes the network from nerve_arch.py as ONNX opset 17:
 
   5x5 stem -> 24 x (Conv-ReLU-Conv + x) -> + stem -> 3x3 conv to 3*scale^2 channels -> PixelShuffle -> + bicubic(x)
 
