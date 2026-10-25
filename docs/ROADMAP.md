@@ -2,8 +2,8 @@
 
 마지막 업데이트: 2026-10-24 (2단계 평가)
 
-HOOPICS는 지금 Real-ESRGAN의 AI 모델과 그 실행 엔진(realesrgan-ncnn-vulkan, 텐센트 ncnn 기반)을 내려받아
-씁니다. 이 엔진이 HOO 도구 원칙에 맞지 않아서, 단계적으로 우리 엔진과 우리 모델로 바꿉니다.
+HOOPICS 0.1.x는 Real-ESRGAN의 AI 모델과 그 실행 엔진(realesrgan-ncnn-vulkan, 텐센트 ncnn 기반)을 내려받아
+썼습니다. 이 엔진이 HOO 도구 원칙에 맞지 않아서, 0.2.0부터 우리 엔진과 NERVE 모델로 바꾸고, 그다음 우리 모델로 바꿉니다.
 
 **HOO 도구 원칙**
 
@@ -23,6 +23,7 @@ HOOPICS는 지금 Real-ESRGAN의 AI 모델과 그 실행 엔진(realesrgan-ncnn-
 | 2026-10-24 | v0.1.1에도 있는 시작 문제 2개를 v0.1.2로 고친다 (아래 0단계) |
 | 2026-10-24 | VC++ 런타임은 작성자 본인의 Visual Studio Community 라이선스를 근거로 엔진 런타임에 넣어 배포한다 (1단계 참고) |
 | 2026-10-24 | 테스트와 모델 평가는 작성자의 노트북 한 대에서 할 수 있는 것으로 끝낸다. 다른 PC, 다른 사람의 평가, 저자 서면 확인은 하지 않는다 |
+| 2026-10-24 | v0.2.0의 모델: 사진은 NERVE 4x OTF GAN, 애니·일러스트는 NERVE 4x OTF fidelity. 애니·일러스트 품질이 0.1.x보다 떨어져도 낸다(0.1.x는 Releases에 남음). waifu2x는 쓰지 않는다 (2단계) |
 
 ### 버전 전략
 
@@ -134,7 +135,7 @@ DirectML의 fp16은 이 GPU에서 오히려 느려서 fp32를 씁니다. 우리 
 | [NERVE](https://huggingface.co/Phips/NERVE) | 사진·일반 | Philip Hofmann (스위스, 개인) | 코드·가중치 Apache-2.0. 학습 데이터는 PxHere 사진(CC0 표기) | 사진 모델 후보. 그림에서는 지금 모델보다 흐리거나 잡티가 생김 |
 | [waifu2x / nunif](https://github.com/nagadomi/nunif) | 애니·일러스트 | nagadomi (일본, 개인) | 저장소 MIT, 가중치 라이선스는 따로 밝히지 않음. 학습 데이터는 2012년 크롤링 | 학습 데이터가 원칙에 맞지 않아 제외. 수치로는 가장 좋지만 눈으로는 지금 모델보다 흐림 |
 
-- [x] 실행: NERVE 체크포인트(.safetensors)를 torch 없이 직접 읽어 ONNX로 바꿈(`dev/candidates/nerve_to_onnx.py`).
+- [x] 실행: NERVE 체크포인트(.safetensors)를 torch 없이 직접 읽어 ONNX로 바꿈(`dev/models/nerve_to_onnx.py`).
   저자가 공개한 ONNX와 결과가 같음(최대 1/255 차이). bicubic 부분을 고정 합성곱으로 바꿔서, DirectML에 bicubic Resize가 없어
   그 노드만 CPU로 넘기는 공개 ONNX보다 빠름. NERVE 학습에는 traiNNer-redux(BasicSR 계열 학습 코드)와 Real-ESRGAN 방식의 열화
   합성을 썼지만, 모델 구조와 가중치는 저자 본인 것
@@ -174,8 +175,8 @@ DirectML의 fp16은 이 GPU에서 오히려 느려서 fp32를 씁니다. 우리 
 - [x] 라이선스(서면 확인 없음): NERVE 가중치는 Apache-2.0로 밝혀져 있음. 학습 데이터 LUCID CC0 v2는 PxHere 사진으로 만들었고,
   PxHere는 모든 사진을 CC0라고 밝히지만 사용자가 올린 사진이라 한 장씩 확인된 것은 아님. waifu2x 가중치는 MIT 저장소의 릴리스에
   있지만 라이선스를 따로 밝히지 않았고, 학습 데이터가 크롤링이라 원칙에 맞지 않음
-- [ ] 결정: 사진 모델을 NERVE 4x OTF GAN으로 바꾸는 것, 그리고 애니·일러스트 품질이 지금보다 떨어지는데 v0.2.0을 낼지
-  (작성자 결정 대기)
+- [x] 결정(2026-10-24): 사진은 NERVE 4x OTF GAN, 애니·일러스트는 NERVE 4x OTF fidelity로 v0.2.0을 냄. 애니·일러스트에서
+  지금보다 흐려지는 것은 받아들이고, 0.1.x는 Releases에 남김
 
 ### 3단계: 우리 사진 모델
 
@@ -183,7 +184,8 @@ DirectML의 fp16은 이 GPU에서 오히려 느려서 fp32를 씁니다. 우리 
 - [ ] 구조: 소형 합성곱 네트워크(32층, 약 120만 파라미터). 서브픽셀 업샘플링(ESPCN, Twitter)과 잔차 학습(VDSR·EDSR, 서울대)을 논문을 보고 직접 구현
 - [ ] 열화 합성: BSRGAN(ETH 취리히) 방식으로 흐림, 잡음, JPEG, 축소를 섞음. Real-ESRGAN(텐센트)의 2차 열화는 아이디어만 참고하고 코드는 쓰지 않음
 - [ ] 학습 코드: PyTorch로 직접 작성(BasicSR은 쓰지 않음)
-- [ ] 1차 학습(L1 손실)은 이 노트북에서(가벼운 설정으로 약 19시간), 2차 학습(GAN)은 RTX 4090 임대($0.34~0.89/시간)
+- [ ] 1차 학습(L1 손실)은 이 노트북에서(가벼운 설정으로 약 19시간), 2차 학습(GAN)은 RTX 4090 임대($0.34~0.89/시간).
+  GPU 임대는 "노트북 한 대에서만"(2026-10-24 결정)과 맞지 않으므로 3단계를 시작하기 전에 다시 정함
 - [ ] 지각 손실(perceptual loss)용 VGG19를 쓸지 결정. 학습에만 쓰고 배포하지 않지만 ImageNet으로 학습된 모델이고 ImageNet은 비상업 조건
 - [ ] ONNX로 내보내고 Real-ESRGAN 사진 모델과 블라인드 비교
 
@@ -195,11 +197,27 @@ DirectML의 fp16은 이 GPU에서 오히려 느려서 fp32를 씁니다. 우리 
 
 ### 5단계: v0.2.0 출시
 
-- [ ] Real-ESRGAN·ncnn 관련 코드, 문서, 고지 제거
-- [ ] 새 고지: ONNX Runtime(MIT)과 그 ThirdPartyNotices, DirectML 재배포 라이선스, 모델 라이선스
-- [ ] README에 이전 버전(v0.1.x) 안내
-- [ ] 창 스크린샷 다시 찍기(아래쪽의 버전과 엔진 이름)
-- [ ] 모델 카드: 학습 데이터 출처, 라이선스, 버전
+2단계 결정에 따라 v0.2.0은 NERVE 모델로 3·4단계보다 먼저 냅니다. 우리 모델이 나오면 모델 꾸러미만 새로 냅니다.
+
+- [x] 모델 꾸러미 `hoopics-models-nerve-r1.zip`(약 20MB): `dev/models/Build-Models.ps1`이 저자의 저장소에서 커밋과 해시를
+  고정한 체크포인트를 받아 fp32·fp16 ONNX로 바꿈. 같은 입력이면 같은 ZIP이 나옴(numpy 2.4와 2.5, 새로 받은 파일로 확인).
+  태그 `models-*`를 올리면 CI가 만들어 올림(`.github/workflows/models.yml`). 앱은 런타임처럼 ZIP과 모델 파일 4개의 SHA-256을 확인
+- [x] 앱: 그림 종류는 "애니·일러스트"(NERVE fidelity)와 "사진"(NERVE GAN) 두 가지. 처음 실행할 때 런타임과 모델을 함께 받음(약 36MB).
+  이 PC 안의 웹 서버로 받기, 해시 확인, 풀기, 두 모델로 키우기까지 확인
+- [x] 타일 여백 32px: 타일로 나눈 결과를 한 번에 처리한 결과와 비교(가장자리 64px 제외)
+
+  | 여백 | 16px | 24px | 32px | 48px |
+  |---|---|---|---|---|
+  | 사진 (GAN) | 56.3 dB | 61.7 dB | 63.2 dB | 63.3 dB |
+  | 애니 (fidelity) | 64.4 dB | 68.5 dB | 69.4 dB | 69.4 dB |
+
+- [x] Real-ESRGAN·ncnn 관련 코드, 문서, 고지 제거(`dev/parity` 삭제, 0.1.x 고지는 v0.1.2 태그에 남김). 0.1.x 엔진 때문에 두었던
+  "작업 폴더는 영문 경로만" 제한도 뺌
+- [x] 새 고지: ONNX Runtime, DirectML, VC++ 런타임(그대로), NERVE(Apache-2.0 원문과 바꾼 내용)
+- [x] README에 이전 버전(v0.1.x) 안내
+- [x] 창 스크린샷 다시 찍기(아래쪽의 버전과 모델 이름), 데모 그림도 NERVE로 다시 만듦
+- [x] 모델 카드: `docs/MODELS.md`(학습 데이터 출처, 라이선스, 변환, 평가)
+- [ ] 모델 꾸러미 릴리스(`models-nerve-r1`) 게시, `main` 병합, v0.2.0 태그와 릴리스 (작성자 확인 후)
 
 ### 공통 과제 (버전과 상관없이)
 
